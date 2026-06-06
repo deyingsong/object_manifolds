@@ -8,6 +8,7 @@ SquareCorrCoeffCost
     coefficients (used with OptStiefelGBB).
 ConstrainedLeastSquares
     Solve  min 0.5 ||Cv-t||^2  s.t.  Sv <= b  via a cutting-plane loop.
+    Uses IBM ILOG CPLEX (cplexlsqlin) to exactly match the MATLAB original.
 OptimalLowRankStructure
     Find the minimum rank K such that residual inter-manifold correlations
     are minimised.
@@ -17,10 +18,10 @@ from __future__ import annotations
 
 import sys
 import os
+import socket
 from typing import Optional, Tuple
 
 import numpy as np
-from scipy.optimize import lsq_linear, linprog
 
 # Allow importing FOptM from the package root
 _PKG_ROOT = os.path.join(os.path.dirname(__file__), "..")
@@ -29,6 +30,15 @@ if _PKG_ROOT not in sys.path:
 
 from FOptM import opt_stiefel_gbb, StiefelOptions
 from .utils import assert_warn
+from .cplex_interface import CplexOptions, cplexoptimset, cplexlsqlin
+
+
+def _is_cluster_node() -> bool:
+    try:
+        name = socket.gethostname()
+        return not name or "brain" in name or "ielsc" in name
+    except Exception:
+        return False
 
 
 class SquareCorrCoeffCost:
@@ -123,15 +133,34 @@ class SquareCorrCoeffCost:
 
 class ConstrainedLeastSquares:
     """
-    Solve  min 0.5 ||Cv-t||^2  subject to  Sv <= b  via a cutting-plane method.
+    Solve  min 0.5 ||Cv-t||^2  subject to  Sv <= b  via a cutting-plane loop.
 
-    This is the Python equivalent of ``calc_constrainted_least_square_cutting_plane.m``
-    (which used IBM ILOG CPLEX).  Here we use ``scipy.optimize.minimize`` (SLSQP).
+    Directly mirrors ``calc_constrainted_least_square_cutting_plane.m``, which
+    called IBM ILOG CPLEX ``cplexlsqlin`` in an active-set (cutting-plane) loop.
+    Each iteration adds the most-violated constraint until the violation drops
+    below ``tolerance`` or ``max_samples`` constraints have been added.
+
+    MATLAB original::
+
+        while violation > TOLERANCE && n_indices <= MAX_SAMPLES
+            [v, ~, ~, flag, output, lambda] = cplexlsqlin(
+                C, t, S(I(1:n_indices),:), b(I(1:n_indices)), [], [], [], [], options);
+            beta = lambda.ineqlin;
+            ...
+            [violation, i] = max(S*v - b);
+            I(n_indices) = i;
+        end
     """
 
     def __init__(self, tolerance: float = 1e-3, max_samples: int = 1000) -> None:
         self.tolerance = tolerance
         self.max_samples = max_samples
+
+    def _make_options(self) -> CplexOptions:
+        opts = cplexoptimset(Display="off")
+        if _is_cluster_node():
+            opts.threads = 1
+        return opts
 
     def solve(
         self,
@@ -150,49 +179,74 @@ class ConstrainedLeastSquares:
 
         Returns
         -------
-        v : (N,) solution
-        beta : (M,) Lagrange multipliers (zeros for inactive constraints)
+        v    : (N,) solution vector
+        beta : (M,) Lagrange multipliers (non-zero for active constraints)
         """
-        from scipy.optimize import minimize
-
         N = C.shape[0]
         M = S.shape[0]
-        assert C.shape == (N, N)
-        assert t.shape == (N,)
-        assert b.shape == (M,)
-        assert S.shape == (M, N)
+        assert C.shape == (N, N), f"C must be ({N},{N}), got {C.shape}"
+        assert t.shape == (N,),   f"t must be ({N},)"
+        assert b.shape == (M,),   f"b must be ({M},)"
+        assert S.shape == (M, N), f"S must be ({M},{N})"
 
         INITIAL_SAMPLES = min(5, M)
         rng = np.random.default_rng()
-        active = rng.choice(M, size=INITIAL_SAMPLES, replace=False).tolist()
-        v = None
+        # Initialise active-set index array (mirrors MATLAB I)
+        I = np.zeros(self.max_samples, dtype=int)
+        n_indices = INITIAL_SAMPLES
+        I[:n_indices] = rng.choice(M, size=INITIAL_SAMPLES, replace=False)
 
-        for _ in range(self.max_samples):
+        options = self._make_options()
+        v = None
+        beta_active = np.array([])
+        violation = np.inf
+
+        while violation > self.tolerance and n_indices <= self.max_samples:
+            active = I[:n_indices]
             Sa = S[active]
             ba = b[active]
-            # Solve QP: min 0.5 v'C'Cv - t'Cv  s.t. Sa v <= ba
-            # Equivalent to  min ||Cv - t||^2  under constraint Sa v <= ba
-            from scipy.optimize import minimize
-            obj = lambda v: (0.5 * np.sum((C @ v - t)**2), C.T @ (C @ v - t))
-            result = minimize(
-                obj, np.zeros(N), jac=True,
-                constraints={"type": "ineq", "fun": lambda v: ba - Sa @ v},
-                method="SLSQP", options={"ftol": 1e-10, "disp": False},
-            )
-            if not result.success:
-                break
-            v = result.x
-            violation = float(np.max(S @ v - b))
-            if violation <= self.tolerance:
-                break
-            # Add the most violated constraint
-            worst = int(np.argmax(S @ v - b))
-            if worst not in active:
-                active.append(worst)
 
+            v_new, _, _, flag, output, lam = cplexlsqlin(
+                C, t, Sa, ba, None, None, None, None, options
+            )
+
+            beta_active = lam.ineqlin
+
+            if flag != 1:
+                print(output)
+                print(
+                    f"Warning: Solution not found "
+                    f"(flag={flag}, {output.get('message','')})"
+                )
+                break
+
+            v = v_new
+            violations = S @ v - b
+            violation = float(np.max(violations))
+            worst = int(np.argmax(violations))
+
+            if n_indices < self.max_samples:
+                I[n_indices] = worst
+            n_indices += 1
+
+        if n_indices > self.max_samples:
+            print(
+                f"Warning: violation of {violation:.3f} after "
+                f"{self.max_samples} iterations"
+            )
+
+        if v is None:
+            v = np.zeros(N)
+
+        # Build full beta vector (zeros for inactive constraints)
         beta = np.zeros(M)
-        # Approximate Lagrange multipliers via dual of active set
-        return v if v is not None else np.zeros(N), beta
+        if len(beta_active) > 0:
+            active_final = I[:min(n_indices - 1, self.max_samples)]
+            for k, idx in enumerate(active_final):
+                if k < len(beta_active):
+                    beta[idx] = beta_active[k]
+
+        return v, beta
 
     def solve_batch(
         self,
@@ -204,7 +258,9 @@ class ConstrainedLeastSquares:
         Solve the manifold projection problem for a batch of random directions.
 
         For each row t in T, find:
-          v* = argmin ||v - t||^2  s.t.  F' v >= kappa  (for all columns of F)
+          v* = argmin ||v - t||^2  s.t.  F' v >= kappa  (all columns of F)
+
+        Formulated as ``cplexlsqlin(I, t_i, -F', -kappa * ones(M))`` per row.
 
         Parameters
         ----------
@@ -216,28 +272,25 @@ class ConstrainedLeastSquares:
         -------
         V : (n_t, D)  projected directions
         """
-        from scipy.optimize import minimize
-
         n_t, D = T.shape
         M = F.shape[1]
         assert F.shape[0] == D
 
+        # Aineq x <= bineq  <=>  -F'x <= -kappa
+        Aineq = -F.T                                     # (M, D)
+        bineq = -kappa * np.ones(M)
+        C_id = np.eye(D)                                 # min ||Iv - t||^2
+
+        options = self._make_options()
         V = np.empty_like(T)
+
         for i in range(n_t):
-            t = T[i]
-            # min ||v-t||^2  s.t.  F.T @ v >= kappa  => -F.T @ v <= -kappa
-            obj = lambda v: (np.sum((v - t)**2), 2 * (v - t))
-            constraints = {
-                "type": "ineq",
-                "fun": lambda v: F.T @ v - kappa,
-                "jac": lambda v: F.T,
-            }
-            res = minimize(
-                obj, t, jac=True, constraints=constraints,
-                method="SLSQP",
-                options={"ftol": 1e-10, "disp": False, "maxiter": 500},
+            t_i = T[i]
+            v, _, _, flag, _, _ = cplexlsqlin(
+                C_id, t_i, Aineq, bineq, None, None, None, None, options
             )
-            V[i] = res.x if res.success else t
+            V[i] = v if (flag >= 0 and np.all(np.isfinite(v))) else t_i
+
         return V
 
 

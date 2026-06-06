@@ -1,7 +1,8 @@
 """
 Linear separability tests via SVM (max-margin classification).
 
-Replaces the CPLEX-based MATLAB functions with scipy.optimize QP solvers.
+Uses IBM ILOG CPLEX QP solver (cplexqp) to exactly match the original
+MATLAB implementation in check_linear_seperability_svm_cplexqp.m.
 
 Classes
 -------
@@ -13,13 +14,23 @@ LinearSeparabilityGeneralizationSVM
 
 from __future__ import annotations
 
+import socket
 from dataclasses import dataclass, field
 from typing import Optional, Tuple
 
 import numpy as np
-from scipy.optimize import minimize
 
 from .utils import assert_warn
+from .cplex_interface import CplexOptions, cplexoptimset, cplexqp
+
+
+def _is_cluster_node() -> bool:
+    """Return True when running on ELSC cluster nodes (use single thread)."""
+    try:
+        name = socket.gethostname()
+        return not name or "brain" in name or "ielsc" in name
+    except Exception:
+        return False
 
 
 @dataclass
@@ -42,6 +53,7 @@ class LinearSeparabilitySVM:
     Corresponds to ``check_linear_seperability_svm_cplexqp.m``.
 
     The primal minimises  0.5 ||w||^2  s.t.  y_i(w'x_i + b) >= 1.
+    Uses IBM ILOG CPLEX via the cplexqp Python API.
     """
 
     def __init__(
@@ -53,6 +65,18 @@ class LinearSeparabilitySVM:
         self.tolerance = tolerance
         self.solve_dual = solve_dual
         self.max_iterations = max_iterations
+
+    def _make_options(self) -> CplexOptions:
+        opts = cplexoptimset(
+            Display="off",
+            feasibility_tolerance=self.tolerance,
+            optimality_tolerance=self.tolerance,
+        )
+        if _is_cluster_node():
+            opts.threads = 1
+        if self.max_iterations > 0:
+            opts.max_iterations = self.max_iterations
+        return opts
 
     def check(self, X: np.ndarray, y: np.ndarray) -> SVMResult:
         """
@@ -97,59 +121,117 @@ class LinearSeparabilitySVM:
         return result
 
     def _solve_primal(self, X: np.ndarray, y: np.ndarray, N: int, M: int) -> SVMResult:
-        """Primal SVM: min 0.5||w||^2  s.t.  y_i(w'x_i+b)>=1."""
-        Xb = np.vstack([X, np.ones((1, M))])
-        Xy = Xb * y[np.newaxis, :]        # (N+1, M)
+        """
+        Primal SVM: min 0.5 x'Hx + f'x  s.t.  Aineq x <= bineq
 
-        # Use scipy SLSQP: min 0.5||w[:-1]||^2  s.t. Xy' w >= 1
-        w0 = np.zeros(N + 1)
-        obj = lambda w: (0.5 * np.dot(w[:N], w[:N]), np.r_[w[:N], 0.0])
-        constraints = {
-            "type": "ineq",
-            "fun": lambda w: Xy.T @ w - 1.0,
-            "jac": lambda w: Xy.T,
-        }
-        opts = {"ftol": self.tolerance**2, "disp": False}
-        if self.max_iterations > 0:
-            opts["maxiter"] = self.max_iterations
-        res = minimize(obj, w0, jac=True, constraints=constraints,
-                       method="SLSQP", options=opts)
+        Exactly mirrors the MATLAB primal branch in
+        check_linear_seperability_svm_cplexqp.m::
 
-        result = SVMResult(flag=0 if res.success else -1)
-        if res.success or np.all(np.isfinite(res.x)):
-            w = res.x
+            f = zeros(1, N+1);
+            H = eye(N+1); H(N+1,N+1) = 0;
+            Xy = [X; ones(1, M)] .* repmat(y, [N+1, 1]);
+            Aineq = -Xy';  bineq = -ones(1, M);
+            [w, L, flag, output] = cplexqp(H, f, Aineq, bineq, [], [], [], [], [], options);
+        """
+        Xb = np.vstack([X, np.ones((1, M))])            # (N+1, M)
+        Xy = Xb * y[np.newaxis, :]                       # (N+1, M)
+
+        H = np.eye(N + 1)
+        H[N, N] = 0.0
+        f = np.zeros(N + 1)
+        Aineq = -Xy.T                                    # (M, N+1)
+        bineq = -np.ones(M)
+
+        options = self._make_options()
+
+        result = SVMResult()
+        try:
+            w, L, flag, output = cplexqp(
+                H, f, Aineq, bineq, None, None, None, None, None, options
+            )
+        except Exception as err:
+            # Mirror MATLAB catch block
+            msg = str(err)
+            if "1256" in msg or "singular" in msg.lower():
+                print("Warning: Basis singular")
+            else:
+                import warnings
+                warnings.warn(f"cplex failed: {msg}")
+            result.flag = -100
+            return result
+
+        result.flag = flag
+
+        if w is not None and np.all(np.isfinite(w)):
+            assert_warn(
+                flag <= 0 or L >= 0,
+                "Got a negative result L=%1.1f (flag=%d)", L, flag,
+            )
             Xw = Xy.T @ w
+            assert_warn(
+                flag < 0 or flag == 5 or np.all(Xw - 1 >= -1e-4),
+                "Violation of kkt conditions: %1.1e (flag=%d, |w|=%1.1e)",
+                float(np.min(Xw - 1)), flag, float(np.linalg.norm(w)),
+            )
             result.sv_indices = np.where(Xw - 1 < 1e-3)[0]
             result.n_support_vectors = len(result.sv_indices)
             result.w = w
+
         return result
 
     def _solve_dual(self, X: np.ndarray, y: np.ndarray, N: int, M: int) -> SVMResult:
-        """Dual SVM: max sum(a) - 0.5 a'Qa  s.t. a>=0, ya=0."""
-        from scipy.optimize import minimize
+        """
+        Dual SVM: max sum(a) - 0.5 a' (Xy Xy') a  s.t.  y'a = 0,  a >= 0.
 
-        Xy = X * y[np.newaxis, :]
-        Q = Xy.T @ Xy                          # (M, M)
+        Exactly mirrors the MATLAB dual branch::
 
-        # min 0.5 a'Qa - sum(a)  s.t. ya=0, a>=0
-        obj = lambda a: (0.5 * a @ Q @ a - a.sum(), Q @ a - 1.0)
-        constraints = {"type": "eq", "fun": lambda a: y @ a, "jac": lambda a: y}
-        bounds = [(0.0, None)] * M
-        a0 = np.zeros(M)
-        res = minimize(obj, a0, jac=True, method="SLSQP",
-                       constraints=constraints, bounds=bounds,
-                       options={"ftol": self.tolerance**2, "disp": False})
+            options.solutiontarget = 2;   % first-order optimal
+            Xy = X .* repmat(y, [N, 1]);
+            H = Xy'*Xy;
+            f = -ones(1, M);
+            lb = zeros(1, M);
+            Aeq = y;  beq = 0;
+            [a, L, flag] = cplexqp(H, f, [], [], Aeq, beq, lb, [], [], options);
+        """
+        Xy = X * y[np.newaxis, :]                        # (N, M)
+        H = Xy.T @ Xy                                    # (M, M)
+        f = -np.ones(M)
+        lb = np.zeros(M)
+        Aeq = y.reshape(1, M)
+        beq = np.zeros(1)
 
-        result = SVMResult(flag=0 if res.success else -1)
-        if res.success:
-            a = res.x
+        options = self._make_options()
+        # Non-convex H (indefinite kernel) → first-order solution only
+        options.optimality_target = 2
+
+        result = SVMResult()
+
+        w, L, flag, output = cplexqp(
+            H, f, None, None, Aeq, beq, lb, None, None, options
+        )
+        L = -L  # MATLAB negates for maximisation
+
+        if flag == -999:   # 'Unknown status' equivalent
+            flag = 0
+
+        result.flag = flag
+
+        if flag >= 0:
+            a = w
+            assert_warn(L >= 0, "L=%1.1f flag=%d", float(L), flag)
+            assert np.all(a >= 0), "Negative kkt coefficients found"
+            assert abs(y @ a) < 1e-1, (
+                f"Bias condition does not hold: {abs(y@a):.1e} (flag={flag})"
+            )
             result.lagrange_multipliers = a
             result.sv_indices = np.where(a > np.max(a) * 1e-3)[0]
             result.n_support_vectors = len(result.sv_indices)
+
             w_primal = Xy @ a
             Xw = X.T @ w_primal
             b = float(np.mean(Xw[result.sv_indices] - y[result.sv_indices]))
             result.w = np.r_[w_primal, -b]
+
         return result
 
 

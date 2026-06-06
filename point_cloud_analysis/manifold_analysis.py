@@ -17,7 +17,6 @@ from dataclasses import dataclass
 from typing import List, Optional, Dict, Any
 
 import numpy as np
-from scipy.optimize import minimize
 from scipy.integrate import dblquad
 
 # Allow importing FOptM from package root
@@ -27,6 +26,7 @@ if _PKG_ROOT not in sys.path:
 
 from FOptM import opt_stiefel_gbb, StiefelOptions
 from library.low_rank import SquareCorrCoeffCost
+from library.cplex_interface import CplexOptions, cplexoptimset, cplexlsqlin
 
 
 @dataclass
@@ -330,21 +330,35 @@ class ManifoldStableAnalysisCorr:
     def _compute_v_allpt(
         tt: np.ndarray, sDi: np.ndarray, eps: float, kappa: float, sD1: np.ndarray
     ):
-        """Find v* = argmin ||v-t||^2  s.t. sD1' v >= -kappa."""
+        """
+        Find v* = argmin ||v-t||^2  s.t.  sD1' v >= -kappa.
+
+        Solved via IBM ILOG CPLEX (cplexlsqlin), mirroring the commented
+        cplexqp branch in minimize_vt_sq() of manifold_stable_analysis_corr.m.
+
+        Formulation::
+
+            min  0.5 ||I*v - tt||^2
+            s.t. -sD1.T @ v <= kappa * ones(m)   (i.e. sD1.T @ v >= -kappa)
+        """
         D1, m = sD1.shape
-        # QP: min ||v-t||^2  s.t.  sD1' v >= -kappa
-        obj = lambda v: (np.sum((v - tt)**2), 2*(v - tt))
-        constraints = {
-            "type": "ineq",
-            "fun": lambda v: sD1.T @ v + kappa,
-            "jac": lambda v: sD1.T,
-        }
-        res = minimize(
-            obj, tt, jac=True, method="SLSQP",
-            constraints=constraints,
-            options={"ftol": 1e-10, "disp": False},
+
+        # Aineq v <= bineq  ⟺  -sD1.T v <= kappa*1  ⟺  sD1.T v >= -kappa
+        Aineq = -sD1.T                              # (m, D1)
+        bineq = kappa * np.ones(m)
+
+        C_id = np.eye(D1)
+        options = cplexoptimset(Display="off")
+
+        v_new, _, _, flag, _, _ = cplexlsqlin(
+            C_id, tt, Aineq, bineq, None, None, None, None, options
         )
-        v_f = res.x if res.success else tt.copy()
+
+        if flag >= 0 and np.all(np.isfinite(v_new)):
+            v_f = v_new
+        else:
+            v_f = tt.copy()
+
         lam = float(np.sum(np.maximum(sD1.T @ v_f + kappa, 0)))
         if lam > 1e-10:
             s_f = (tt - v_f) / lam
