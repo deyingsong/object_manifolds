@@ -1,0 +1,44 @@
+name: object-manifolds
+
+# -----------------------------------------------------------------------
+# Architecture note (Apple Silicon / Rosetta)
+# -----------------------------------------------------------------------
+# IBM CPLEX 2211 ships x86-64 macOS binaries only.  On Apple Silicon
+# this environment must run under Rosetta 2 (x86-64 emulation).
+# The system Anaconda is already configured for osx-64 (check with
+# `conda info | grep platform`).  If yours is not, force it:
+#
+#   CONDA_SUBDIR=osx-64 conda env create -f environment.yml
+#   conda activate object-manifolds
+#   conda config --env --set subdir osx-64
+#
+# -----------------------------------------------------------------------
+
+channels:
+  - pytorch        # official PyTorch builds
+  - conda-forge
+  - defaults
+
+dependencies:
+  # --- Python runtime ---------------------------------------------------
+  - python=3.10    # required by CPLEX 2211 Python bindings
+
+  # --- Core scientific stack -------------------------------------------
+  - numpy>=1.24,<2.0   # PyTorch 2.2 was compiled against NumPy 1.x ABI
+  - scipy>=1.10
+
+  # --- Deep learning (feature extraction) ------------------------------
+  # CPU-only on x86-64/Rosetta; no MPS support in this environment
+  - pytorch::pytorch=2.2.2
+  - pytorch::torchvision=0.17.2
+  - pytorch::cpuonly           # ensures the CPU-only torch variant
+
+  # --- Image I/O -------------------------------------------------------
+  - pillow>=9.0
+
+  # --- Utilities -------------------------------------------------------
+  - pip
+
+  # --- CPLEX Python bindings (x86-64, local install) -------------------
+  - pip:
+    - /Applications/CPLEX_Studio2211/cplex/python/3.10/x86-64_osx
