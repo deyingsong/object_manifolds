@@ -1,0 +1,480 @@
+{
+  "repository_analysis": {
+    "name": "DNN Object Manifolds MATLAB Repository",
+    "url": "dnn-object-manifolds-master",
+    "analysis_date": "2026-06-06",
+    "analysis_summary": {
+      "total_matlab_files": 93,
+      "total_lines_of_code": 10666,
+      "average_file_size": 115,
+      "language": "MATLAB"
+    }
+  },
+  "folder_structure_breakdown": {
+    "FOptM": {
+      "description": "Fast Optimization on Manifolds - external optimization library for manifold optimization",
+      "file_count": 7,
+      "total_lines": 890,
+      "percentage": "8.3%",
+      "categories": {
+        "optimization_algorithms": 7
+      },
+      "key_modules": [
+        "OptStiefelGBB.m (345 lines) - Gradient descent on Stiefel manifold",
+        "OptManiMulitBallGBB.m (276 lines) - Optimization on ball manifold",
+        "MGramSchmidt.m (17 lines) - Gram-Schmidt orthogonalization"
+      ],
+      "role": "External library providing core optimization routines"
+    },
+    "library": {
+      "description": "Shared utility and core analysis functions used across the project",
+      "file_count": 22,
+      "total_lines": 2149,
+      "percentage": "20.1%",
+      "categories": {
+        "analysis_functions": 14,
+        "utility_helpers": 4,
+        "other": 4
+      },
+      "key_modules": [
+        "check_covariance_low_rank_approx_optimal_K.m (453 lines) - Core analysis",
+        "check_capacity.m (178 lines) - Capacity analysis",
+        "check_linear_seperability_svm_cplexqp.m (159 lines) - SVM classification"
+      ],
+      "role": "Foundational functions reused by analysis and generation modules"
+    },
+    "point_cloud_analysis": {
+      "description": "Specialized manifold analysis for point cloud representations",
+      "file_count": 1,
+      "total_lines": 719,
+      "percentage": "6.7%",
+      "categories": {
+        "complex_analysis": 1
+      },
+      "key_modules": [
+        "manifold_stable_analysis_corr.m (719 lines) - Complex point cloud manifold analysis"
+      ],
+      "role": "Standalone comprehensive analysis routine for point cloud manifolds"
+    },
+    "smooth_manifolds_analysis": {
+      "description": "Main data analysis pipeline for smooth manifolds from neural networks",
+      "file_count": 37,
+      "total_lines": 4840,
+      "percentage": "45.3%",
+      "categories": {
+        "analysis_functions": 25,
+        "generation_functions": 2,
+        "utility_helpers": 5,
+        "other": 5
+      },
+      "key_modules": [
+        "check_convnet_covariance_low_rank_approx_optimal_K.m (624 lines)",
+        "check_convnet_capacity_one_dimensional_change.m (316 lines)",
+        "check_convnet_capacity_one_dimensional_change2.m (286 lines)",
+        "generate_results_ncomms2020.m (208 lines) - MAIN ENTRY POINT"
+      ],
+      "role": "Primary analysis module - contains experimental workflows"
+    },
+    "smooth_manifolds_generation": {
+      "description": "Data generation and manifold creation for synthetic manifold experiments",
+      "file_count": 26,
+      "total_lines": 2068,
+      "percentage": "19.4%",
+      "categories": {
+        "generation_functions": 11,
+        "utility_helpers": 8,
+        "analysis_functions": 3,
+        "other": 4
+      },
+      "key_modules": [
+        "load_network_metadata.m (316 lines) - Network architecture loading",
+        "generate_convnet_random_change2.m (304 lines) - Random manifold generation",
+        "generate_convnet_one_dimensional_change.m (286 lines) - 1D manifold generation",
+        "generate_datasets_ncomms2020.m (152 lines) - MAIN DATA GENERATION SCRIPT"
+      ],
+      "role": "Data pipeline - generates synthetic manifold datasets"
+    }
+  },
+  "file_categorization": {
+    "entry_points": {
+      "count": 2,
+      "description": "Main scripts for running experiments",
+      "files": [
+        {
+          "name": "generate_results_ncomms2020.m",
+          "path": "smooth_manifolds_analysis/",
+          "lines": 208,
+          "complexity": "complex",
+          "purpose": "Run capacity analysis experiments for NComms 2020 paper",
+          "dependencies": [
+            "init_imagenet",
+            "check_convnet_capacity_one_dimensional_change*",
+            "check_convnet_capacity_random_change*"
+          ]
+        },
+        {
+          "name": "generate_datasets_ncomms2020.m",
+          "path": "smooth_manifolds_generation/",
+          "lines": 152,
+          "complexity": "medium",
+          "purpose": "Generate synthetic manifold datasets",
+          "dependencies": [
+            "generate_convnet_*",
+            "init_imagenet"
+          ]
+        }
+      ]
+    },
+    "core_analyzers": {
+      "count": 28,
+      "description": "Complex analysis functions - capacity, dichotomies, manifold properties",
+      "largest_files": [
+        {
+          "name": "check_convnet_covariance_low_rank_approx_optimal_K.m",
+          "lines": 624,
+          "complexity": "complex",
+          "function_calls": 89,
+          "purpose": "Analyze low-rank covariance structure of manifolds"
+        },
+        {
+          "name": "check_covariance_low_rank_approx_optimal_K.m",
+          "lines": 453,
+          "complexity": "complex",
+          "function_calls": 82,
+          "purpose": "Core covariance analysis (library version)"
+        },
+        {
+          "name": "check_convnet_capacity_one_dimensional_change.m",
+          "lines": 316,
+          "complexity": "complex",
+          "function_calls": 47,
+          "purpose": "Analyze manifold capacity for 1D transformations"
+        }
+      ],
+      "categories": [
+        "capacity_analysis (check_*_capacity*.m) - 10 files",
+        "dichotomy_testing (check_binary_dichotomies*.m) - 8 files",
+        "linear_separability (check_linear_seperability*.m) - 5 files",
+        "covariance_analysis (check_*_covariance*.m) - 3 files",
+        "hierarchical_capacity (check_hierarchial_capacity.m) - 1 file"
+      ]
+    },
+    "data_generators": {
+      "count": 14,
+      "description": "Functions for creating synthetic manifolds and transformations",
+      "largest_files": [
+        {
+          "name": "generate_convnet_random_change2.m",
+          "lines": 304,
+          "complexity": "complex",
+          "function_calls": 58,
+          "purpose": "Generate random manifold transformations"
+        },
+        {
+          "name": "generate_convnet_one_dimensional_change.m",
+          "lines": 286,
+          "complexity": "complex",
+          "function_calls": 62,
+          "purpose": "Generate 1D manifold variations"
+        },
+        {
+          "name": "generate_convnet_model_metadata.m",
+          "lines": 99,
+          "complexity": "medium",
+          "function_calls": 30,
+          "purpose": "Load and process network metadata"
+        }
+      ],
+      "categories": [
+        "manifold_generation (generate_convnet*.m) - 5 files",
+        "transformation_creation (create_*_affine*.m) - 7 files",
+        "image_processing (calc_imagenet_warp*.m) - 2 files"
+      ]
+    },
+    "utilities": {
+      "count": 17,
+      "description": "Helper/utility functions used throughout codebase",
+      "functions": [
+        {
+          "name": "assert_warn.m",
+          "lines": 5,
+          "category": "assertion",
+          "copies": 3,
+          "purpose": "Assert with warning fallback"
+        },
+        {
+          "name": "sample_indices.m",
+          "lines": 9,
+          "category": "sampling",
+          "copies": 3,
+          "purpose": "Sample indices for random selection"
+        },
+        {
+          "name": "init_imagenet.m",
+          "lines": 26,
+          "category": "initialization",
+          "copies": 2,
+          "purpose": "Initialize ImageNet paths and settings"
+        },
+        {
+          "name": "hostname.m",
+          "lines": 11,
+          "category": "system",
+          "copies": 2,
+          "purpose": "Get system hostname"
+        },
+        {
+          "name": "sample_random_labels.m",
+          "lines": 13,
+          "category": "sampling",
+          "copies": 2,
+          "purpose": "Generate random labels for experiments"
+        }
+      ],
+      "note": "Many utilities are duplicated across folders (3 total copies of assert_warn, 2 copies of init_imagenet, etc)"
+    },
+    "optimization_library": {
+      "count": 6,
+      "description": "External FOptM manifold optimization algorithms",
+      "functions": [
+        {
+          "name": "OptStiefelGBB.m",
+          "lines": 345,
+          "complexity": "complex",
+          "purpose": "Gradient descent on Stiefel manifold"
+        },
+        {
+          "name": "OptManiMulitBallGBB.m",
+          "lines": 276,
+          "complexity": "complex",
+          "purpose": "Optimization on ball manifold"
+        },
+        {
+          "name": "MGramSchmidt.m",
+          "lines": 17,
+          "complexity": "simple",
+          "purpose": "Gram-Schmidt orthogonalization"
+        }
+      ]
+    },
+    "other": {
+      "count": 6,
+      "description": "Miscellaneous files not in main categories",
+      "files": [
+        "manifold_stable_analysis_corr.m - Point cloud manifold analysis",
+        "load_network_metadata.m - Network metadata handling",
+        "square_corrcoeff_full_cost.m - Correlation coefficient calculation",
+        "optimal_low_rank_structure2.m - Low-rank structure analysis",
+        "calc_randomization_single_neurons.m - Neuron randomization",
+        "calc_low_dimension_manifold.m - Low-dimensional manifold calculation"
+      ]
+    }
+  },
+  "dependency_relationships": {
+    "overview": "Clear hierarchical structure with library as foundation",
+    "dependency_layers": {
+      "layer_1_foundation": {
+        "description": "Core optimization and utility functions",
+        "modules": ["FOptM/*", "library/assert_warn.m", "library/hostname.m", "library/sample_*.m"]
+      },
+      "layer_2_core_functions": {
+        "description": "Analysis and calculation functions used throughout",
+        "modules": [
+          "library/check_*.m (14 files)",
+          "library/calc_*.m (5 files)",
+          "library/theory_*.m (2 files)"
+        ],
+        "dependencies": ["Layer 1 functions", "FOptM for optimization"]
+      },
+      "layer_3_analysis_pipeline": {
+        "description": "Main analysis workflows",
+        "modules": [
+          "smooth_manifolds_analysis/check_*.m (25 files)",
+          "smooth_manifolds_analysis/calc_*.m (8 files)"
+        ],
+        "dependencies": ["Library functions", "FOptM"]
+      },
+      "layer_4_data_generation": {
+        "description": "Data generation and preparation",
+        "modules": [
+          "smooth_manifolds_generation/generate_*.m",
+          "smooth_manifolds_generation/create_*.m"
+        ],
+        "dependencies": ["Library utilities", "Network metadata"]
+      },
+      "layer_5_entry_points": {
+        "description": "Main experiment scripts",
+        "modules": ["generate_results_ncomms2020.m", "generate_datasets_ncomms2020.m"],
+        "dependencies": ["All other layers"]
+      }
+    },
+    "key_dependencies": {
+      "smooth_manifolds_analysis_depends_on": [
+        "library/* - Core analysis functions",
+        "load_network_metadata.m - Network structure",
+        "FOptM/* - Manifold optimization"
+      ],
+      "smooth_manifolds_generation_depends_on": [
+        "library/* - Utilities",
+        "init_imagenet.m - Data initialization",
+        "create_*_affine_transform*.m - Transformation utilities"
+      ],
+      "point_cloud_analysis_depends_on": [
+        "FOptM/OptStiefelGBB.m - Manifold optimization",
+        "library/* - Analysis utilities"
+      ]
+    },
+    "cross_folder_usage": {
+      "library_used_by": [
+        "smooth_manifolds_analysis/",
+        "smooth_manifolds_generation/",
+        "point_cloud_analysis/"
+      ],
+      "FOptM_used_by": [
+        "point_cloud_analysis/manifold_stable_analysis_corr.m",
+        "Implicitly by library analysis functions"
+      ],
+      "init_imagenet_duplicated_in": [
+        "library/",
+        "smooth_manifolds_analysis/",
+        "smooth_manifolds_generation/"
+      ]
+    }
+  },
+  "complexity_assessment": {
+    "simple_files": {
+      "count": 35,
+      "line_range": "< 80 lines",
+      "examples": [
+        "assert_warn.m (5 lines)",
+        "sample_indices.m (9 lines)",
+        "read_imagenet_labels.m (6 lines)",
+        "hostname.m (11 lines)"
+      ],
+      "purpose": "Utilities and helper functions"
+    },
+    "medium_complexity": {
+      "count": 35,
+      "line_range": "80-200 lines",
+      "examples": [
+        "check_samples_capacity.m (131 lines)",
+        "check_binary_dichotomies_capacity.m (185 lines)",
+        "optimal_low_rank_structure2.m (136 lines)",
+        "calc_manifold_properties.m (80 lines)"
+      ],
+      "purpose": "Main analysis and calculation functions"
+    },
+    "complex_files": {
+      "count": 23,
+      "line_range": "> 200 lines",
+      "examples": [
+        "manifold_stable_analysis_corr.m (719 lines) - Most complex",
+        "check_convnet_covariance_low_rank_approx_optimal_K.m (624 lines)",
+        "OptStiefelGBB.m (345 lines)",
+        "check_convnet_capacity_one_dimensional_change.m (316 lines)"
+      ],
+      "purpose": "Major algorithms and comprehensive analysis routines",
+      "characteristics": "High internal complexity, many helper function calls (40-90 calls per file)"
+    }
+  },
+  "module_descriptions": {
+    "analysis_pipeline": {
+      "purpose": "Analyze manifold properties of deep neural network representations",
+      "modules": [
+        "Capacity Analysis - check_*_capacity*.m - Tests classification capacity on manifolds",
+        "Dichotomy Analysis - check_binary_dichotomies*.m - Tests linear separability",
+        "Covariance Analysis - check_*_covariance*.m - Analyzes correlation structure",
+        "Manifold Properties - calc_manifold_properties*.m - Computes geometric properties"
+      ],
+      "workflow": "Input (network activations) → Load metadata → Compute properties → Analyze capacity → Output results"
+    },
+    "data_generation": {
+      "purpose": "Generate synthetic manifolds for controlled experiments",
+      "modules": [
+        "Network Initialization - init_imagenet, load_network_metadata",
+        "Transformation Creation - create_*_affine_transform*.m - Define manifold deformations",
+        "Data Generation - generate_convnet*.m - Create synthetic datasets",
+        "Image Processing - calc_imagenet_warp*.m - Transform images"
+      ],
+      "workflow": "Select network → Load architecture → Define transformation → Generate samples → Save dataset"
+    },
+    "optimization_framework": {
+      "purpose": "Optimize functions on Riemannian manifolds",
+      "modules": [
+        "Stiefel Manifold - OptStiefelGBB.m - Orthonormal matrices",
+        "Ball Manifold - OptManiMulitBallGBB.m - Constrained optimization",
+        "Utilities - MGramSchmidt.m - Orthogonalization"
+      ],
+      "usage": "Called by point_cloud_analysis and manifold_stable_analysis functions"
+    },
+    "point_cloud_analysis": {
+      "purpose": "Analyze point cloud manifolds using advanced techniques",
+      "modules": ["manifold_stable_analysis_corr.m (719 lines)"],
+      "characteristics": "Largest single file, uses FOptM optimization, complex statistical analysis"
+    }
+  },
+  "code_duplication": {
+    "summary": "Significant duplication of utility functions across folders",
+    "duplicated_files": {
+      "assert_warn.m": {
+        "locations": ["library/", "smooth_manifolds_analysis/", "smooth_manifolds_generation/"],
+        "lines": 5,
+        "note": "Identical utility - should be centralized"
+      },
+      "sample_indices.m": {
+        "locations": ["library/", "smooth_manifolds_analysis/", "smooth_manifolds_generation/"],
+        "lines": 9,
+        "note": "Identical utility - should be centralized"
+      },
+      "init_imagenet.m": {
+        "locations": ["library/", "smooth_manifolds_analysis/", "smooth_manifolds_generation/"],
+        "lines": 26,
+        "note": "Initialization code - minor variations expected"
+      },
+      "hostname.m": {
+        "locations": ["library/", "smooth_manifolds_analysis/"],
+        "lines": 11,
+        "note": "System utility - should be centralized"
+      }
+    },
+    "estimated_redundant_lines": "~60 lines could be eliminated with better code organization"
+  },
+  "translation_planning_notes": {
+    "key_considerations": [
+      "Complex numerical algorithms (manifold optimization, SVM, covariance analysis)",
+      "Heavy use of matrix operations and linear algebra",
+      "File I/O and data serialization for large datasets",
+      "ImageNet integration and network architecture handling",
+      "Parallel computation patterns (evident from run_id loop patterns)"
+    ],
+    "primary_language_features_to_translate": [
+      "Matrix operations (use NumPy in Python)",
+      "Optimization routines (replace FOptM with SciPy or manifold-specific libraries)",
+      "SVM implementations (use scikit-learn)",
+      "Statistical analysis (use SciPy.stats or NumPy)",
+      "File handling and data loading"
+    ],
+    "translation_priority": {
+      "phase_1_critical": [
+        "FOptM library - replace with existing Python manifold optimization",
+        "Library core functions - translate check_*, calc_* functions",
+        "Entry points - generate_results_ncomms2020.m, generate_datasets_ncomms2020.m"
+      ],
+      "phase_2_important": [
+        "smooth_manifolds_analysis/* - main analysis pipeline",
+        "smooth_manifolds_generation/* - data generation pipeline"
+      ],
+      "phase_3_specialized": [
+        "point_cloud_analysis/* - specialized analysis",
+        "Optimization components - may benefit from alternative libraries"
+      ]
+    },
+    "estimated_effort": {
+      "total_lines": 10666,
+      "complexity_adjustment": "High - mathematical/numerical code",
+      "estimated_python_lines": "8000-9000 (accounting for more verbose Python syntax)",
+      "estimated_effort_hours": "150-200 hours for complete translation",
+      "testing_effort_hours": "100+ hours (numerical validation critical)"
+    }
+  }
+}
