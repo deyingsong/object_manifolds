@@ -1,3 +1,5 @@
 dnn-object-manifolds-master/
 .DS_Store
-__pycache__
+__pycache__/
+alexnet/
+imagenet_all_thumbnails_64px.mat

@@ -29,7 +29,7 @@ from .capacity_analysis import (
 )
 from .low_rank_analysis import (
     LowRankAnalysisConfig,
-    LowRankLayerResults,
+    LowRankResults,
     CovarianceLowRankAnalysis,
 )
 
@@ -52,5 +52,5 @@ __all__ = [
     # analysis
     "CapacityAnalysisConfig", "LayerCapacityResults",
     "OneDimensionalCapacityAnalysis", "RandomChangeCapacityAnalysis", "DIRECTION_NAMES",
-    "LowRankAnalysisConfig", "LowRankLayerResults", "CovarianceLowRankAnalysis",
+    "LowRankAnalysisConfig", "LowRankResults", "CovarianceLowRankAnalysis",
 ]
