@@ -1,44 +1,65 @@
 """
 Manifold generation: forward-pass images through a DNN under affine transforms.
 
-Two generation modes:
-  1. One-dimensional change  –  one transformation type, sweeping a single
-     parameter  (generate_convnet_one_dimensional_change).
-  2. Random change  –  two random transformation types applied jointly
-     (generate_convnet_random_change / generate_convnet_random_change2).
+Mirrors the MATLAB scripts:
+  generate_convnet_one_dimensional_change.m  → OneDimensionalManifoldGenerator
+  generate_convnet_random_change2.m          → RandomManifoldGenerator
 
-Output tuning-function shape:
-  (N_DIRECTIONS, N_OBJECTS, N_SAMPLES, N_NEURONS)
-which is then transposed to (N_NEURONS, N_SAMPLES, N_OBJECTS) per manifold.
+Workflow (matching MATLAB's distributed loop):
+
+    # 1. Init
+    state = init_imagenet()
+    config = GenerationConfig(network_type=NetworkType.ALEXNET,
+                              range_factor=0.5, n_objects=128, n_samples=15)
+    gen = OneDimensionalManifoldGenerator(config, state)
+
+    # 2. Generate: one call per (direction × batch) pair
+    #    run_id goes 1..N_DIRECTIONS*N_BATCHES  (= 1..28 with 7 dirs × 4 batches)
+    for run_id in range(1, 29):
+        gen.generate(run_id)            # or: gen.generate(batch_id=run_id)
+
+    # 3. Collect: assemble all partial files
+    results = gen.collect(range(1, 29)) # {layer_name → (N_DIR, N_OBJ, N_SMP, N_FEAT)}
 """
 
 from __future__ import annotations
 
 import os
-from dataclasses import dataclass
+import time
+from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, Iterable, List, Optional, Tuple
 
 import numpy as np
 
-from .transforms import AffineTransformFactory, ImageNetConfig, TransformType
+from .transforms import AffineTransformFactory, ImageNetConfig, TransformType, AffineTransform
 from .network import ConvNetExtractor, load_network_metadata, NetworkType
 from .imagenet import ImageNetState
 
 
+# ---------------------------------------------------------------------------
+# Configuration
+# ---------------------------------------------------------------------------
+
 @dataclass
 class GenerationConfig:
-    """Common configuration for manifold generation."""
+    """Configuration mirroring the arguments of the MATLAB generation scripts."""
 
-    n_objects: int = 100
-    n_samples: int = 11
-    range_factor: float = 1.0
-    network_type: int = 1
-    layers_grouping_level: int = 0
-    random_seed: int = 0
-    output_dir: str = "."
-    device: str = "cpu"
+    n_objects: int = 128       # P  – number of object images
+    n_samples: int = 15        # M  – number of transform samples per manifold
+    range_factor: float = 0.5  # controls transform magnitude
+    network_type: int = 1      # NetworkType enum value (1=AlexNet, 3=ResNet50, 5=VGG16)
+    n_batches: int = 4         # N_BATCHES in MATLAB (divides N_OBJECTS)
+    n_features: int = 4096     # N_HMAX_FEATURES – max features per layer
+    feature_seed: int = 1      # RNG seed for random feature sub-selection
+    random_seed: int = 0       # RNG seed for image index selection
+    output_dir: str = "."      # where to save per-run files
+    device: str = "cpu"        # torch device
 
+
+# ---------------------------------------------------------------------------
+# One-dimensional (7 affine transform types)
+# ---------------------------------------------------------------------------
 
 class OneDimensionalManifoldGenerator:
     """
@@ -46,15 +67,17 @@ class OneDimensionalManifoldGenerator:
 
     Corresponds to ``generate_convnet_one_dimensional_change.m``.
 
-    The output tuning function has shape:
-      (N_DIRECTIONS, N_OBJECTS, N_SAMPLES, N_NEURONS)
-    for N_DIRECTIONS = 7 transformation types.
+    run_id maps to a (direction, batch) pair via MATLAB's ind2sub convention::
+
+        param_id     = (run_id - 1) % N_DIRECTIONS + 1   # 1..7
+        batch_number = (run_id - 1) // N_DIRECTIONS + 1  # 1..N_BATCHES
     """
 
+    N_DIRECTIONS = 7
     DIRECTION_NAMES = [
         "x-translation", "y-translation",
-        "x-scale", "y-scale",
-        "x-shear", "y-shear",
+        "x-scale",        "y-scale",
+        "x-shear",        "y-shear",
         "rotation",
     ]
 
@@ -71,86 +94,327 @@ class OneDimensionalManifoldGenerator:
             object_size=imagenet_state.object_size,
         )
         self.factory = AffineTransformFactory(self.img_config)
+        self._image_indices: Optional[np.ndarray] = None
+        self._feature_indices: Optional[Dict[str, np.ndarray]] = None
+
+        nt = NetworkType(config.network_type)
+        self._network_name = nt.name.lower()   # e.g. "alexnet"
+        out = Path(config.output_dir) / self._network_name
+        out.mkdir(parents=True, exist_ok=True)
+        self._out_dir = out
+
+    # ------------------------------------------------------------------
+    # Public interface
+    # ------------------------------------------------------------------
 
     def generate(
         self,
-        template_images: np.ndarray,
-        layer_name: str,
-    ) -> np.ndarray:
+        run_id: Optional[int] = None,
+        *,
+        batch_id: Optional[int] = None,
+    ) -> str:
         """
+        Compute and save tuning functions for one (direction × batch) pair.
+
         Parameters
         ----------
-        template_images : np.ndarray  (N_OBJECTS, H, W, 3)  uint8
-        layer_name : str
+        run_id : int
+            Linear index 1 .. N_DIRECTIONS × N_BATCHES.
+            ``batch_id`` is accepted as an alias.
 
         Returns
         -------
-        np.ndarray  (N_DIRECTIONS, N_OBJECTS, N_SAMPLES, N_FEATURES)
+        str
+            Path to the saved ``.npz`` file.
         """
-        n_dirs = len(self.DIRECTION_NAMES)
-        n_objects, H, W, C = template_images.shape
-        n_samples = self.config.n_samples
+        if run_id is None:
+            if batch_id is not None:
+                run_id = batch_id
+            else:
+                raise ValueError("Provide run_id or batch_id.")
 
-        # Determine feature dimension by a trial forward pass
-        with ConvNetExtractor(
-            self.config.network_type,
-            layer_names=[layer_name],
-            device=self.config.device,
-        ) as extractor:
-            trial = extractor.extract(template_images[:1])
-            n_features = trial.get(layer_name, trial.get("output")).shape[1]
+        n_dir = self.N_DIRECTIONS
+        n_batches = self.config.n_batches
+        assert 1 <= run_id <= n_dir * n_batches, (
+            f"run_id must be in [1, {n_dir * n_batches}], got {run_id}"
+        )
 
-            tuning = np.zeros(
-                (n_dirs, n_objects, n_samples, n_features), dtype=np.float32
+        # MATLAB ind2sub([N_DIRECTIONS, N_BATCHES], run_id) – column-major
+        param_id    = (run_id - 1) % n_dir + 1        # 1..7
+        batch_number = (run_id - 1) // n_dir + 1      # 1..n_batches
+
+        batch_size = self.config.n_objects // n_batches
+        all_indices = self._get_image_indices()
+        batch_indices = all_indices[
+            (batch_number - 1) * batch_size : batch_number * batch_size
+        ]   # 1-based image ids, shape (batch_size,)
+
+        out_path = self._run_path(run_id)
+        if out_path.exists():
+            print(f"  Skipping existing: {out_path.name}")
+            return str(out_path)
+
+        print(
+            f"  run_id={run_id:3d}  dir={self.DIRECTION_NAMES[param_id-1]:18s}"
+            f"  batch {batch_number}/{n_batches}"
+        )
+
+        results = self._run_batch(param_id, batch_indices)
+        # results: {layer_name: (batch_size, n_samples, n_features)} float32
+
+        np.savez_compressed(
+            out_path,
+            image_indices=batch_indices,
+            param_id=np.array(param_id),
+            batch_number=np.array(batch_number),
+            direction_name=np.array(self.DIRECTION_NAMES[param_id - 1]),
+            **{f"layer_{k}": v for k, v in results.items()},
+        )
+        return str(out_path)
+
+    def collect(
+        self,
+        run_ids: Optional[Iterable[int]] = None,
+        *,
+        batch_ids: Optional[Iterable[int]] = None,
+    ) -> Dict[str, np.ndarray]:
+        """
+        Load all saved per-run files and assemble the full tuning function.
+
+        Parameters
+        ----------
+        run_ids : iterable of int, optional
+            Which run_ids to collect.  ``batch_ids`` is accepted as an alias.
+            Defaults to all 1..N_DIRECTIONS × N_BATCHES.
+
+        Returns
+        -------
+        dict  {layer_name → np.ndarray  (N_DIRECTIONS, N_OBJECTS, N_SAMPLES, N_FEATURES)}
+        """
+        if run_ids is None:
+            run_ids = batch_ids
+        if run_ids is None:
+            n = self.N_DIRECTIONS * self.config.n_batches
+            run_ids = range(1, n + 1)
+        run_ids = list(run_ids)
+
+        n_dir = self.N_DIRECTIONS
+        n_obj = self.config.n_objects
+        n_smp = self.config.n_samples
+        n_bat = self.config.n_batches
+        batch_size = n_obj // n_bat
+
+        # First pass: discover layer names
+        first = np.load(self._run_path(run_ids[0]), allow_pickle=True)
+        layer_names = [
+            k[len("layer_"):] for k in first.files if k.startswith("layer_")
+        ]
+        n_feat = {ln: first[f"layer_{ln}"].shape[-1] for ln in layer_names}
+
+        # Allocate output
+        full: Dict[str, np.ndarray] = {
+            ln: np.full((n_dir, n_obj, n_smp, n_feat[ln]), np.nan, dtype=np.float32)
+            for ln in layer_names
+        }
+
+        for run_id in run_ids:
+            param_id    = (run_id - 1) % n_dir + 1
+            batch_number = (run_id - 1) // n_dir + 1
+            obj_lo = (batch_number - 1) * batch_size
+            obj_hi = batch_number * batch_size
+
+            data = np.load(self._run_path(run_id), allow_pickle=True)
+            for ln in layer_names:
+                # shape: (batch_size, n_samples, n_features)
+                full[ln][param_id - 1, obj_lo:obj_hi, :, :] = data[f"layer_{ln}"]
+
+        return full
+
+    # ------------------------------------------------------------------
+    # Internal helpers
+    # ------------------------------------------------------------------
+
+    def _run_path(self, run_id: int) -> Path:
+        cfg = self.config
+        rf = cfg.range_factor
+        tag = f"{rf:.1f}" if rf >= 0.1 else f"{rf:f}"
+        return self._out_dir / (
+            f"gen1d_{self._network_name}_range{tag}"
+            f"_P{cfg.n_objects}_M{cfg.n_samples}_run{run_id:03d}.npz"
+        )
+
+    def _get_image_indices(self) -> np.ndarray:
+        """Return fixed 1-based image indices (one per call, cached)."""
+        if self._image_indices is None:
+            from .imagenet import choose_imagenet_template_images
+            self._image_indices = choose_imagenet_template_images(
+                self.config.n_objects,
+                random_seed=self.config.random_seed if self.config.random_seed != 0 else None,
             )
+        return self._image_indices
 
-            for d, direction_name in enumerate(self.DIRECTION_NAMES):
-                param_id = d + 1
-                for j in range(n_samples):
-                    transform = self.factory.create_1d(
-                        self.config.range_factor, param_id, j, n_samples
-                    )
-                    warped = self._warp_images(template_images, transform)
-                    feats = extractor.extract(warped)
-                    feat = feats.get(layer_name, feats.get("output"))
-                    tuning[d, :, j, :] = feat
+    def _run_batch(
+        self,
+        param_id: int,
+        batch_indices: np.ndarray,
+    ) -> Dict[str, np.ndarray]:
+        """
+        Run the network on all (object, sample) pairs for one direction.
 
-        return tuning
+        Returns
+        -------
+        {layer_name: (batch_size, n_samples, n_features)} float32
+        """
+        from .imagenet import read_imagenet_thumbnails
 
-    def _warp_images(
-        self, images: np.ndarray, transform
+        cfg = self.config
+        n_smp = cfg.n_samples
+        batch_size = len(batch_indices)
+
+        # --- Lazy-load the network and get layer names ---
+        meta = load_network_metadata(cfg.network_type)
+        layer_names = meta.layer_names   # e.g. ['conv1', 'relu1', ...]
+
+        extractor = ConvNetExtractor(
+            cfg.network_type,
+            layer_names=layer_names,
+            device=cfg.device,
+            n_features=cfg.n_features,
+            feature_seed=cfg.feature_seed,
+        )
+
+        # Allocate result buffers (filled incrementally)
+        results: Optional[Dict[str, np.ndarray]] = None
+
+        T0 = time.time()
+        for ii, image_id in enumerate(batch_indices):
+            # Load base thumbnail: (C=3, H=144, W=144) uint8
+            img_chw_uint8 = read_imagenet_thumbnails(int(image_id))
+            img_chw = img_chw_uint8.astype(np.float32)  # still (3, H, W)
+
+            # Build N_SAMPLES warped + preprocessed images
+            batch_hwc = []
+            for j in range(n_smp):
+                transform = self.factory.create_1d(
+                    cfg.range_factor, param_id, j, n_smp
+                )
+                warped_hwc = self._calc_imagenet_warp(img_chw, transform)   # (H_out, W_out, 3) float32
+                batch_hwc.append(warped_hwc)
+
+            batch = np.stack(batch_hwc, axis=0)   # (n_smp, H_out, W_out, 3)
+
+            # Forward pass: {layer_name → (n_smp, n_feat)}
+            feats = extractor.extract(batch)
+
+            # Allocate on first object
+            if results is None:
+                results = {
+                    ln: np.zeros((batch_size, n_smp, arr.shape[-1]), dtype=np.float32)
+                    for ln, arr in feats.items()
+                }
+
+            for ln, arr in feats.items():
+                if ln in results:
+                    results[ln][ii] = arr   # (n_smp, n_feat)
+
+            elapsed = time.time() - T0
+            eta = elapsed / (ii + 1) * (batch_size - ii - 1)
+            if eta > 60:
+                print(f"    object {ii+1}/{batch_size}  ETA {eta/60:.1f} min")
+            elif elapsed > 5:
+                print(f"    object {ii+1}/{batch_size}  ETA {eta:.0f} sec")
+
+        extractor.close()
+        return results
+
+    def _calc_imagenet_warp(
+        self,
+        img_chw: np.ndarray,
+        transform: AffineTransform,
     ) -> np.ndarray:
-        """Apply an affine transform to a batch of images."""
-        from PIL import Image
+        """
+        Apply a MATLAB-convention affine transform from the large frame image
+        to the smaller output image, using world-coordinate mapping.
 
-        out_size = self.img_config.image_size
-        M = transform.matrix
-        warped = np.zeros_like(images)
-        for i, img in enumerate(images):
-            pil = Image.fromarray(img)
-            # affine coefficients for PIL: (a,b,c,d,e,f) meaning
-            # x_src = a*x + b*y + c,  y_src = d*x + e*y + f
-            a, b, c = M[0, 0], M[1, 0], M[2, 0]
-            d_c, e, f = M[0, 1], M[1, 1], M[2, 1]
-            pil_warped = pil.transform(
-                (out_size, out_size),
-                Image.AFFINE,
-                (a, b, c, d_c, e, f),
-                resample=Image.BICUBIC,
+        Mirrors ``calc_imagenet_warp.m``::
+
+            input  → (FRAME_SIZE × FRAME_SIZE) world range [-s_in,  s_in]
+            output → (IMAGE_SIZE × IMAGE_SIZE) world range [-s_out, s_out]
+
+        Parameters
+        ----------
+        img_chw : (3, H_in, W_in) float32, values in [0, 255]
+            H_in = W_in = frame_size (144 for 64-px setting).
+        transform : AffineTransform
+            3×3 matrix in MATLAB affine2d convention:
+            ``[x', y', 1] = [x, y, 1] @ T``.
+
+        Returns
+        -------
+        np.ndarray  (H_out, W_out, 3) float32, values in [0, 255]
+        """
+        from scipy.ndimage import affine_transform as _ndi_warp
+
+        state = self.imagenet
+        N_in  = state.frame_size   # 144
+        N_out = state.image_size   # 64
+        s_in  = float(state.frame_size)  / state.object_size   # 3.0
+        s_out = float(state.image_size)  / state.object_size   # 4/3 ≈ 1.3333
+
+        T = transform.matrix          # 3×3, MATLAB convention
+        T_inv = np.linalg.inv(T)      # maps output world → input world
+
+        # Pixel-spacing in world units
+        # output: pixel col/row → world x/y
+        scale_out = 2.0 * s_out / (N_out - 1)   # world units per output pixel
+        # input: world x/y → pixel col/row
+        scale_in  = (N_in - 1) / (2.0 * s_in)   # input pixels per world unit
+
+        sc = scale_in * scale_out   # combined scale (≈ 1.009 for identity)
+
+        # Build scipy matrix and offset:
+        #   in_coord = matrix @ out_coord + offset
+        #   coord = [row, col] = [y, x]
+        #
+        # From derivation (x=col, y=row in image):
+        #   row_in = sc*T_inv[1,1]*row_out + sc*T_inv[0,1]*col_out + b_row
+        #   col_in = sc*T_inv[1,0]*row_out + sc*T_inv[0,0]*col_out + b_col
+        matrix = np.array([
+            [sc * T_inv[1, 1],  sc * T_inv[0, 1]],   # row_in from (row_out, col_out)
+            [sc * T_inv[1, 0],  sc * T_inv[0, 0]],   # col_in from (row_out, col_out)
+        ])
+        offset = np.array([
+            scale_in * (-s_out * (T_inv[0, 1] + T_inv[1, 1]) + T_inv[2, 1] + s_in),
+            scale_in * (-s_out * (T_inv[0, 0] + T_inv[1, 0]) + T_inv[2, 0] + s_in),
+        ])
+
+        # Apply to each channel
+        out_hwc = np.zeros((N_out, N_out, 3), dtype=np.float32)
+        for c in range(3):
+            out_hwc[:, :, c] = _ndi_warp(
+                img_chw[c].astype(np.float64),
+                matrix=matrix,
+                offset=offset,
+                output_shape=(N_out, N_out),
+                order=1,         # bilinear – matches MATLAB imwarp default
+                mode="nearest",  # border handling
+                prefilter=False,
             )
-            warped[i] = np.array(pil_warped)
-        return warped
+        return out_hwc
 
+
+# ---------------------------------------------------------------------------
+# Two-dimensional (random transform pairs)
+# ---------------------------------------------------------------------------
 
 class RandomManifoldGenerator:
     """
     Generate DNN response manifolds with random pairs of affine transforms.
 
     Corresponds to ``generate_convnet_random_change2.m``.
-
-    Output shape: (N_DIRECTIONS=2, N_OBJECTS, N_SAMPLES, N_FEATURES)
-    where direction 0 = first transform, direction 1 = second transform.
     """
+
+    N_DIRECTIONS = 2
 
     def __init__(
         self,
@@ -167,64 +431,173 @@ class RandomManifoldGenerator:
             object_size=imagenet_state.object_size,
         )
         self.factory = AffineTransformFactory(self.img_config)
+        self._image_indices: Optional[np.ndarray] = None
+
+        nt = NetworkType(config.network_type)
+        self._network_name = nt.name.lower()
+        out = Path(config.output_dir) / self._network_name
+        out.mkdir(parents=True, exist_ok=True)
+        self._out_dir = out
 
     def generate(
         self,
-        template_images: np.ndarray,
-        layer_name: str,
+        run_id: Optional[int] = None,
+        *,
+        batch_id: Optional[int] = None,
+    ) -> str:
+        """Generate one batch of random-transform manifolds and save to disk."""
+        if run_id is None:
+            if batch_id is not None:
+                run_id = batch_id
+            else:
+                raise ValueError("Provide run_id or batch_id.")
+
+        out_path = self._run_path(run_id)
+        if out_path.exists():
+            print(f"  Skipping existing: {out_path.name}")
+            return str(out_path)
+
+        cfg = self.config
+        n_batches = cfg.n_batches
+        batch_size = cfg.n_objects // n_batches
+        batch_number = run_id  # 1-based batch index
+        all_indices = self._get_image_indices()
+        batch_indices = all_indices[
+            (batch_number - 1) * batch_size : batch_number * batch_size
+        ]
+
+        meta = load_network_metadata(cfg.network_type)
+        extractor = ConvNetExtractor(
+            cfg.network_type,
+            layer_names=meta.layer_names,
+            device=cfg.device,
+            n_features=cfg.n_features,
+            feature_seed=cfg.feature_seed,
+        )
+
+        rng = np.random.default_rng(
+            (cfg.random_seed, run_id) if cfg.random_seed else run_id
+        )
+        n_smp = cfg.n_samples
+
+        results: Optional[Dict[str, np.ndarray]] = None
+        for ii, image_id in enumerate(batch_indices):
+            from .imagenet import read_imagenet_thumbnails
+            img_chw = read_imagenet_thumbnails(int(image_id)).astype(np.float32)
+
+            batch_hwc = []
+            for _ in range(n_smp):
+                transform = self.factory.create_random(cfg.range_factor, n_smp, rng)
+                warped = self._calc_imagenet_warp(img_chw, transform)
+                batch_hwc.append(warped)
+
+            feats = extractor.extract(np.stack(batch_hwc))
+            if results is None:
+                results = {
+                    ln: np.zeros((len(batch_indices), n_smp, v.shape[-1]), dtype=np.float32)
+                    for ln, v in feats.items()
+                }
+            for ln, arr in feats.items():
+                if ln in results:
+                    results[ln][ii] = arr
+
+        extractor.close()
+        np.savez_compressed(
+            out_path,
+            image_indices=batch_indices,
+            batch_number=np.array(batch_number),
+            **{f"layer_{k}": v for k, v in results.items()},
+        )
+        return str(out_path)
+
+    def collect(
+        self,
+        run_ids: Optional[Iterable[int]] = None,
+        *,
+        batch_ids: Optional[Iterable[int]] = None,
+    ) -> Dict[str, np.ndarray]:
+        """Assemble the full tuning function from per-batch files."""
+        if run_ids is None:
+            run_ids = batch_ids
+        if run_ids is None:
+            run_ids = range(1, self.config.n_batches + 1)
+        run_ids = list(run_ids)
+
+        n_obj = self.config.n_objects
+        n_smp = self.config.n_samples
+        n_bat = self.config.n_batches
+        batch_size = n_obj // n_bat
+
+        first = np.load(self._run_path(run_ids[0]), allow_pickle=True)
+        layer_names = [k[len("layer_"):] for k in first.files if k.startswith("layer_")]
+        n_feat = {ln: first[f"layer_{ln}"].shape[-1] for ln in layer_names}
+
+        full: Dict[str, np.ndarray] = {
+            ln: np.full((n_obj, n_smp, n_feat[ln]), np.nan, dtype=np.float32)
+            for ln in layer_names
+        }
+        for run_id in run_ids:
+            batch_number = run_id
+            lo = (batch_number - 1) * batch_size
+            hi = batch_number * batch_size
+            data = np.load(self._run_path(run_id), allow_pickle=True)
+            for ln in layer_names:
+                full[ln][lo:hi] = data[f"layer_{ln}"]
+
+        return full
+
+    def _run_path(self, run_id: int) -> Path:
+        cfg = self.config
+        tag = f"{cfg.range_factor:.1f}" if cfg.range_factor >= 0.1 else f"{cfg.range_factor:f}"
+        return self._out_dir / (
+            f"genrand_{self._network_name}_range{tag}"
+            f"_P{cfg.n_objects}_M{cfg.n_samples}_run{run_id:03d}.npz"
+        )
+
+    def _get_image_indices(self) -> np.ndarray:
+        if self._image_indices is None:
+            from .imagenet import choose_imagenet_template_images
+            self._image_indices = choose_imagenet_template_images(
+                self.config.n_objects,
+                random_seed=self.config.random_seed or None,
+            )
+        return self._image_indices
+
+    def _calc_imagenet_warp(
+        self, img_chw: np.ndarray, transform: AffineTransform
     ) -> np.ndarray:
-        """
-        Parameters
-        ----------
-        template_images : np.ndarray  (N_OBJECTS, H, W, 3)
-        layer_name : str
+        """Same world-coordinate warp as in OneDimensionalManifoldGenerator."""
+        from scipy.ndimage import affine_transform as _ndi_warp
 
-        Returns
-        -------
-        np.ndarray  (2, N_OBJECTS, N_SAMPLES, N_FEATURES)
-        """
-        rng = np.random.default_rng(self.config.random_seed)
-        n_objects = len(template_images)
-        n_samples = self.config.n_samples
+        state = self.imagenet
+        N_in  = state.frame_size
+        N_out = state.image_size
+        s_in  = float(state.frame_size) / state.object_size
+        s_out = float(state.image_size) / state.object_size
 
-        with ConvNetExtractor(
-            self.config.network_type,
-            layer_names=[layer_name],
-            device=self.config.device,
-        ) as extractor:
-            trial = extractor.extract(template_images[:1])
-            n_features = trial.get(layer_name, trial.get("output")).shape[1]
+        T = transform.matrix
+        T_inv = np.linalg.inv(T)
+        scale_out = 2.0 * s_out / (N_out - 1)
+        scale_in  = (N_in - 1) / (2.0 * s_in)
+        sc = scale_in * scale_out
 
-            tuning = np.zeros(
-                (self.dof, n_objects, n_samples, n_features), dtype=np.float32
+        matrix = np.array([
+            [sc * T_inv[1, 1],  sc * T_inv[0, 1]],
+            [sc * T_inv[1, 0],  sc * T_inv[0, 0]],
+        ])
+        offset = np.array([
+            scale_in * (-s_out * (T_inv[0, 1] + T_inv[1, 1]) + T_inv[2, 1] + s_in),
+            scale_in * (-s_out * (T_inv[0, 0] + T_inv[1, 0]) + T_inv[2, 0] + s_in),
+        ])
+        out_hwc = np.zeros((N_out, N_out, 3), dtype=np.float32)
+        for c in range(3):
+            out_hwc[:, :, c] = _ndi_warp(
+                img_chw[c].astype(np.float64),
+                matrix=matrix,
+                offset=offset,
+                output_shape=(N_out, N_out),
+                order=1,
+                mode="nearest",
+                prefilter=False,
             )
-
-            for d in range(self.dof):
-                for j in range(n_samples):
-                    transform = self.factory.create_random(
-                        self.config.range_factor, n_samples, rng
-                    )
-                    warped = self._warp_images(template_images, transform)
-                    feats = extractor.extract(warped)
-                    feat = feats.get(layer_name, feats.get("output"))
-                    tuning[d, :, j, :] = feat
-
-        return tuning
-
-    def _warp_images(self, images: np.ndarray, transform) -> np.ndarray:
-        from PIL import Image
-        out_size = self.img_config.image_size
-        M = transform.matrix
-        warped = np.zeros_like(images)
-        for i, img in enumerate(images):
-            pil = Image.fromarray(img)
-            a, b, c = M[0, 0], M[1, 0], M[2, 0]
-            d_c, e, f = M[0, 1], M[1, 1], M[2, 1]
-            pil_warped = pil.transform(
-                (out_size, out_size),
-                Image.AFFINE,
-                (a, b, c, d_c, e, f),
-                resample=Image.BICUBIC,
-            )
-            warped[i] = np.array(pil_warped)
-        return warped
+        return out_hwc
