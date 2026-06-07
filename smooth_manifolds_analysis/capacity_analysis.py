@@ -383,16 +383,26 @@ class RandomChangeCapacityAnalysis:
         Parameters
         ----------
         tuning_function : dict
-            Output of ``RandomManifoldGenerator.collect()``:
-            ``{layer_name → np.ndarray (N_OBJECTS, N_SAMPLES, N_FEATURES)}``.
+            Output of ``RandomManifoldGenerator.collect()``.
+            Accepts two formats:
+            - ``(N_OBJECTS, N_SAMPLES, N_FEATURES)``  — single realization
+            - ``(N_TRANSFORM_DIMS, N_OBJECTS, N_SAMPLES, N_FEATURES)`` — multi-realization
+
+            For the 4-D case each transform realization is analysed independently
+            and the results (capacity, separability) are averaged across dims.
 
         Returns
         -------
-        LayerCapacityResults  (one entry per degree of freedom)
+        LayerCapacityResults  (one entry; capacity averaged over transform dims)
         """
         available = list(tuning_function.keys())
         selected = self._select_layer(available, layer_number, layer_name)
-        tf_full = tuning_function[selected]   # (N_OBJ, N_SMP, N_FEAT)
+        tf_full = tuning_function[selected]
+
+        # Normalise to 4-D: (N_XDIMS, N_OBJ, N_SMP, N_FEAT)
+        if tf_full.ndim == 3:
+            tf_full = tf_full[np.newaxis]   # treat as single realization
+        n_xdims, n_obj, n_smp, n_feat = tf_full.shape
 
         cfg = self.config
         estimator = BinaryDichotomiesCapacity(
@@ -405,23 +415,39 @@ class RandomChangeCapacityAnalysis:
             features_type=cfg.features_type,
         )
 
-        # For random-change manifolds the tuning function is (N_OBJ, N_SMP, N_FEAT)
-        # — there is no direction dimension; treat as single direction.
-        n_obj = tf_full.shape[0]
-        tf_nmp = tf_full.transpose(2, 1, 0)   # (N_FEAT, N_SMP, N_OBJ)
+        alpha_c_list: List[float] = []
+        sep_list = []
+        nsamp_list = []
+        nsv_list = []
 
-        mean_sq = np.nanmean(tf_nmp ** 2, axis=(1, 2))
-        tf_nmp = tf_nmp[mean_sq > 0]
+        for xd in range(n_xdims):
+            if cfg.verbose and n_xdims > 1:
+                print(f"  transform_realization {xd+1}/{n_xdims}  layer={selected}")
 
-        cap_res = estimator.estimate(tf_nmp)
-        alpha_c = np.array([n_obj / cap_res.Nc]) if cap_res.Nc else np.array([np.nan])
+            tf_xd = tf_full[xd]                    # (N_OBJ, N_SMP, N_FEAT)
+            tf_nmp = tf_xd.transpose(2, 1, 0)      # (N_FEAT, N_SMP, N_OBJ)
+
+            mean_sq = np.nanmean(tf_nmp ** 2, axis=(1, 2))
+            tf_nmp = tf_nmp[mean_sq > 0]
+
+            if tf_nmp.shape[0] == 0:
+                continue
+
+            cap_res = estimator.estimate(tf_nmp)
+            if cap_res.Nc and cap_res.Nc > 0:
+                alpha_c_list.append(n_obj / cap_res.Nc)
+            sep_list.append(cap_res.separability_results)
+            nsamp_list.append(cap_res.n_neuron_samples_used)
+            nsv_list.append(cap_res.n_support_vectors)
+
+        mean_alpha = np.array([float(np.mean(alpha_c_list))]) if alpha_c_list else np.array([np.nan])
 
         return LayerCapacityResults(
             layer_name=selected,
-            capacity_alpha_c=alpha_c,
-            separability=cap_res.separability_results[np.newaxis],
-            n_neuron_samples=cap_res.n_neuron_samples_used[np.newaxis],
-            n_support_vectors=cap_res.n_support_vectors[np.newaxis] if cap_res.n_support_vectors.size else np.array([]),
+            capacity_alpha_c=mean_alpha,
+            separability=_pad_stack(sep_list),
+            n_neuron_samples=_pad_stack(nsamp_list),
+            n_support_vectors=_pad_stack(nsv_list),
         )
 
     def _select_layer(

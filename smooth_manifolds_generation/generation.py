@@ -45,16 +45,17 @@ from .imagenet import ImageNetState
 class GenerationConfig:
     """Configuration mirroring the arguments of the MATLAB generation scripts."""
 
-    n_objects: int = 128       # P  – number of object images
-    n_samples: int = 15        # M  – number of transform samples per manifold
-    range_factor: float = 0.5  # controls transform magnitude
-    network_type: int = 1      # NetworkType enum value (1=AlexNet, 3=ResNet50, 5=VGG16)
-    n_batches: int = 4         # N_BATCHES in MATLAB (divides N_OBJECTS)
-    n_features: int = 4096     # N_HMAX_FEATURES – max features per layer
-    feature_seed: int = 1      # RNG seed for random feature sub-selection
-    random_seed: int = 0       # RNG seed for image index selection
-    output_dir: str = "."      # where to save per-run files
-    device: str = "cpu"        # torch device
+    n_objects: int = 128        # P  – number of object images
+    n_samples: int = 15         # M  – number of transform samples per manifold
+    range_factor: float = 0.5   # controls transform magnitude
+    network_type: int = 1       # NetworkType enum value (1=AlexNet, 3=ResNet50, 5=VGG16)
+    n_batches: int = 4          # N_BATCHES in MATLAB (divides N_OBJECTS)
+    n_transform_dims: int = 2   # N_TRANSFORMATIONS – random transform realizations (RandomManifoldGenerator)
+    n_features: int = 4096      # N_HMAX_FEATURES – max features per layer
+    feature_seed: int = 1       # RNG seed for random feature sub-selection
+    random_seed: int = 0        # RNG seed for image index selection
+    output_dir: str = "."       # where to save per-run files
+    device: str = "cpu"         # torch device
 
 
 # ---------------------------------------------------------------------------
@@ -84,16 +85,12 @@ class OneDimensionalManifoldGenerator:
     def __init__(
         self,
         config: GenerationConfig,
-        imagenet_state: ImageNetState,
+        imagenet_state: Optional[ImageNetState] = None,
     ) -> None:
         self.config = config
-        self.imagenet = imagenet_state
-        self.img_config = ImageNetConfig(
-            image_size=imagenet_state.image_size,
-            frame_size=imagenet_state.frame_size,
-            object_size=imagenet_state.object_size,
-        )
-        self.factory = AffineTransformFactory(self.img_config)
+        self._imagenet_state: Optional[ImageNetState] = imagenet_state
+        self._img_config: Optional[ImageNetConfig] = None
+        self._factory: Optional[AffineTransformFactory] = None
         self._image_indices: Optional[np.ndarray] = None
         self._feature_indices: Optional[Dict[str, np.ndarray]] = None
 
@@ -102,6 +99,31 @@ class OneDimensionalManifoldGenerator:
         out = Path(config.output_dir) / self._network_name
         out.mkdir(parents=True, exist_ok=True)
         self._out_dir = out
+
+    @property
+    def imagenet(self) -> ImageNetState:
+        """Lazy-initialise ImageNet state if not provided at construction."""
+        if self._imagenet_state is None:
+            from .imagenet import init_imagenet
+            self._imagenet_state = init_imagenet()
+        return self._imagenet_state
+
+    @property
+    def img_config(self) -> ImageNetConfig:
+        if self._img_config is None:
+            st = self.imagenet
+            self._img_config = ImageNetConfig(
+                image_size=st.image_size,
+                frame_size=st.frame_size,
+                object_size=st.object_size,
+            )
+        return self._img_config
+
+    @property
+    def factory(self) -> AffineTransformFactory:
+        if self._factory is None:
+            self._factory = AffineTransformFactory(self.img_config)
+        return self._factory
 
     # ------------------------------------------------------------------
     # Public interface
@@ -409,28 +431,29 @@ class OneDimensionalManifoldGenerator:
 
 class RandomManifoldGenerator:
     """
-    Generate DNN response manifolds with random pairs of affine transforms.
+    Generate DNN response manifolds with random affine transforms.
 
     Corresponds to ``generate_convnet_random_change2.m``.
-    """
 
-    N_DIRECTIONS = 2
+    run_id mapping (column-major, like MATLAB's ind2sub)::
+
+        n_total   = n_batches × n_transform_dims
+        batch_num = (run_id - 1) % n_batches + 1          # 1..n_batches
+        xform_id  = (run_id - 1) // n_batches + 1         # 1..n_transform_dims
+
+    collect() returns:
+        {layer_name → (N_TRANSFORM_DIMS, N_OBJECTS, N_SAMPLES, N_FEATURES)}
+    """
 
     def __init__(
         self,
         config: GenerationConfig,
-        imagenet_state: ImageNetState,
-        degrees_of_freedom: int = 2,
+        imagenet_state: Optional[ImageNetState] = None,
     ) -> None:
         self.config = config
-        self.imagenet = imagenet_state
-        self.dof = degrees_of_freedom
-        self.img_config = ImageNetConfig(
-            image_size=imagenet_state.image_size,
-            frame_size=imagenet_state.frame_size,
-            object_size=imagenet_state.object_size,
-        )
-        self.factory = AffineTransformFactory(self.img_config)
+        self._imagenet_state: Optional[ImageNetState] = imagenet_state
+        self._img_config: Optional[ImageNetConfig] = None
+        self._factory: Optional[AffineTransformFactory] = None
         self._image_indices: Optional[np.ndarray] = None
 
         nt = NetworkType(config.network_type)
@@ -439,28 +462,73 @@ class RandomManifoldGenerator:
         out.mkdir(parents=True, exist_ok=True)
         self._out_dir = out
 
+    @property
+    def imagenet(self) -> ImageNetState:
+        if self._imagenet_state is None:
+            from .imagenet import init_imagenet
+            self._imagenet_state = init_imagenet()
+        return self._imagenet_state
+
+    @property
+    def img_config(self) -> ImageNetConfig:
+        if self._img_config is None:
+            st = self.imagenet
+            self._img_config = ImageNetConfig(
+                image_size=st.image_size,
+                frame_size=st.frame_size,
+                object_size=st.object_size,
+            )
+        return self._img_config
+
+    @property
+    def factory(self) -> AffineTransformFactory:
+        if self._factory is None:
+            self._factory = AffineTransformFactory(self.img_config)
+        return self._factory
+
     def generate(
         self,
         run_id: Optional[int] = None,
         *,
         batch_id: Optional[int] = None,
     ) -> str:
-        """Generate one batch of random-transform manifolds and save to disk."""
+        """
+        Generate and save one (batch × transform-realization) run.
+
+        Parameters
+        ----------
+        run_id / batch_id : int
+            Linear index 1 .. n_batches × n_transform_dims.
+        """
         if run_id is None:
             if batch_id is not None:
                 run_id = batch_id
             else:
                 raise ValueError("Provide run_id or batch_id.")
 
+        cfg = self.config
+        n_batches  = cfg.n_batches
+        n_xdims    = cfg.n_transform_dims
+        n_total    = n_batches * n_xdims
+        assert 1 <= run_id <= n_total, (
+            f"run_id must be in [1, {n_total}], got {run_id}"
+        )
+
+        # Column-major decomposition (batch iterates fastest)
+        batch_number = (run_id - 1) % n_batches + 1   # 1..n_batches
+        xform_id     = (run_id - 1) // n_batches + 1  # 1..n_transform_dims
+
         out_path = self._run_path(run_id)
         if out_path.exists():
             print(f"  Skipping existing: {out_path.name}")
             return str(out_path)
 
-        cfg = self.config
-        n_batches = cfg.n_batches
-        batch_size = cfg.n_objects // n_batches
-        batch_number = run_id  # 1-based batch index
+        print(
+            f"  run_id={run_id:3d}  batch={batch_number}/{n_batches}"
+            f"  xform_realization={xform_id}/{n_xdims}"
+        )
+
+        batch_size  = cfg.n_objects // n_batches
         all_indices = self._get_image_indices()
         batch_indices = all_indices[
             (batch_number - 1) * batch_size : batch_number * batch_size
@@ -475,12 +543,13 @@ class RandomManifoldGenerator:
             feature_seed=cfg.feature_seed,
         )
 
-        rng = np.random.default_rng(
-            (cfg.random_seed, run_id) if cfg.random_seed else run_id
-        )
+        # Each (run_id) gets a unique RNG seed so transforms are independent
+        seed = (cfg.random_seed, run_id) if cfg.random_seed else run_id
+        rng  = np.random.default_rng(seed)
         n_smp = cfg.n_samples
 
         results: Optional[Dict[str, np.ndarray]] = None
+        T0 = time.time()
         for ii, image_id in enumerate(batch_indices):
             from .imagenet import read_imagenet_thumbnails
             img_chw = read_imagenet_thumbnails(int(image_id)).astype(np.float32)
@@ -494,18 +563,26 @@ class RandomManifoldGenerator:
             feats = extractor.extract(np.stack(batch_hwc))
             if results is None:
                 results = {
-                    ln: np.zeros((len(batch_indices), n_smp, v.shape[-1]), dtype=np.float32)
+                    ln: np.zeros((batch_size, n_smp, v.shape[-1]), dtype=np.float32)
                     for ln, v in feats.items()
                 }
             for ln, arr in feats.items():
                 if ln in results:
                     results[ln][ii] = arr
 
+            elapsed = time.time() - T0
+            eta = elapsed / (ii + 1) * (batch_size - ii - 1)
+            if eta > 60:
+                print(f"    object {ii+1}/{batch_size}  ETA {eta/60:.1f} min")
+            elif elapsed > 5:
+                print(f"    object {ii+1}/{batch_size}  ETA {eta:.0f} sec")
+
         extractor.close()
         np.savez_compressed(
             out_path,
             image_indices=batch_indices,
             batch_number=np.array(batch_number),
+            xform_id=np.array(xform_id),
             **{f"layer_{k}": v for k, v in results.items()},
         )
         return str(out_path)
@@ -516,33 +593,46 @@ class RandomManifoldGenerator:
         *,
         batch_ids: Optional[Iterable[int]] = None,
     ) -> Dict[str, np.ndarray]:
-        """Assemble the full tuning function from per-batch files."""
+        """
+        Assemble the full tuning function from per-run files.
+
+        Returns
+        -------
+        dict  {layer_name → np.ndarray (N_TRANSFORM_DIMS, N_OBJECTS, N_SAMPLES, N_FEATURES)}
+        """
         if run_ids is None:
             run_ids = batch_ids
         if run_ids is None:
-            run_ids = range(1, self.config.n_batches + 1)
+            n_total = self.config.n_batches * self.config.n_transform_dims
+            run_ids = range(1, n_total + 1)
         run_ids = list(run_ids)
 
-        n_obj = self.config.n_objects
-        n_smp = self.config.n_samples
-        n_bat = self.config.n_batches
-        batch_size = n_obj // n_bat
+        cfg       = self.config
+        n_obj     = cfg.n_objects
+        n_smp     = cfg.n_samples
+        n_batches = cfg.n_batches
+        n_xdims   = cfg.n_transform_dims
+        batch_size = n_obj // n_batches
 
         first = np.load(self._run_path(run_ids[0]), allow_pickle=True)
         layer_names = [k[len("layer_"):] for k in first.files if k.startswith("layer_")]
         n_feat = {ln: first[f"layer_{ln}"].shape[-1] for ln in layer_names}
 
+        # Output: (N_TRANSFORM_DIMS, N_OBJECTS, N_SAMPLES, N_FEATURES)
         full: Dict[str, np.ndarray] = {
-            ln: np.full((n_obj, n_smp, n_feat[ln]), np.nan, dtype=np.float32)
+            ln: np.full((n_xdims, n_obj, n_smp, n_feat[ln]), np.nan, dtype=np.float32)
             for ln in layer_names
         }
+
         for run_id in run_ids:
-            batch_number = run_id
-            lo = (batch_number - 1) * batch_size
-            hi = batch_number * batch_size
+            batch_number = (run_id - 1) % n_batches + 1
+            xform_id     = (run_id - 1) // n_batches + 1
+            obj_lo = (batch_number - 1) * batch_size
+            obj_hi =  batch_number      * batch_size
+
             data = np.load(self._run_path(run_id), allow_pickle=True)
             for ln in layer_names:
-                full[ln][lo:hi] = data[f"layer_{ln}"]
+                full[ln][xform_id - 1, obj_lo:obj_hi, :, :] = data[f"layer_{ln}"]
 
         return full
 
