@@ -90,6 +90,7 @@ class CapacityAnalysisConfig:
     n_objects: int = 128
     n_samples: int = 15
     range_factor: float = 0.5
+    n_transform_dims: int = 2
     network_type: int = 1
     layers_grouping_level: int = 0
     epoch: Optional[int] = None
