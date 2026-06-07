@@ -35,6 +35,7 @@ dependencies:
 
   # --- Image I/O -------------------------------------------------------
   - pillow>=9.0
+  - h5py>=3.8        # reads imagenet_all_thumbnails_64px.mat (MATLAB v7.3 / HDF5)
 
   # --- Utilities -------------------------------------------------------
   - pip

@@ -19,7 +19,8 @@ from .imagenet import (
     read_imagenet_labels,
     read_imagenet_thumbnails,
     read_imagenet_training_size,
-    choose_template_images,
+    choose_imagenet_template_images,
+    sample_indices_one_per_category,
 )
 from .transforms import (
     ImageNetConfig,
@@ -42,7 +43,8 @@ from .generation import (
 __all__ = [
     "ImageNetState", "init_imagenet", "get_state",
     "read_imagenet_labels", "read_imagenet_thumbnails",
-    "read_imagenet_training_size", "choose_template_images",
+    "read_imagenet_training_size",
+    "choose_imagenet_template_images", "sample_indices_one_per_category",
     "ImageNetConfig", "AffineTransform", "AffineTransformFactory", "TransformType",
     "NetworkType", "NetworkMetadata", "ConvNetExtractor", "load_network_metadata",
     "GenerationConfig", "OneDimensionalManifoldGenerator", "RandomManifoldGenerator",
