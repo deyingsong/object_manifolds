@@ -114,19 +114,21 @@ class SquareCorrCoeffCost:
         Fmn = resid**2 / outer_c0
         cost = float(np.sum(Fmn)) / 2.0
 
-        X1 = X[np.newaxis, :, :]           # (1, P, N)
-        X2 = X[:, np.newaxis, :]           # (P, 1, N)
-        C1 = c[:, np.newaxis, np.newaxis, :]   # (P, 1, 1, K)
-        C2 = c[np.newaxis, :, np.newaxis, :]   # (1, P, 1, K)
-        ratio = (resid / outer_c0)[:, :, np.newaxis, np.newaxis]
-        ratio2 = (resid**2 / outer_c0**2)[:, :, np.newaxis, np.newaxis]
-        c0_col = c0[:, np.newaxis, np.newaxis, np.newaxis]
-        c0_row = c0[np.newaxis, :, np.newaxis, np.newaxis]
+        # Shape convention for Gmni: (m=P, n=P, i=N, k=K)
+        X1 = X[:, np.newaxis, :, np.newaxis]     # (P, 1, N, 1)  — m-th row
+        X2 = X[np.newaxis, :, :, np.newaxis]     # (1, P, N, 1)  — n-th row
+        C1 = c[:, np.newaxis, np.newaxis, :]     # (P, 1, 1, K)  — c[m, k]
+        C2 = c[np.newaxis, :, np.newaxis, :]     # (1, P, 1, K)  — c[n, k]
+        ratio = (resid / outer_c0)[:, :, np.newaxis, np.newaxis]    # (P, P, 1, 1)
+        ratio2 = (resid**2 / outer_c0**2)[:, :, np.newaxis, np.newaxis]  # (P, P, 1, 1)
+        c0_col = c0[:, np.newaxis, np.newaxis, np.newaxis]  # (P, 1, 1, 1)
+        c0_row = c0[np.newaxis, :, np.newaxis, np.newaxis]  # (1, P, 1, 1)
 
-        Gmni = (-ratio * (C1 * X1)
-                - ratio * (C2 * X2)
-                + ratio2 * (c0_col * C2 * X1)
-                + ratio2 * (c0_row * C1 * X2))
+        # Each term broadcasts to (P, P, N, K); sum over (m, n) → (N, K)
+        Gmni = (-ratio * (C1 * X1)           # (P, P, N, K)
+                - ratio * (C2 * X2)           # (P, P, N, K)
+                + ratio2 * (c0_col * C2 * X1) # (P, P, N, K)
+                + ratio2 * (c0_row * C1 * X2)) # (P, P, N, K)
         gradient = Gmni.sum(axis=(0, 1)).reshape(N, K)
         return cost, gradient
 
