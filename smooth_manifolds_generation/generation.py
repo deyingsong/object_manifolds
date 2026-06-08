@@ -56,6 +56,7 @@ class GenerationConfig:
     random_seed: int = 0        # RNG seed for image index selection
     output_dir: str = "."       # where to save per-run files
     device: str = "cpu"         # torch device
+    epoch: Optional[int] = None # training epoch (None = fully trained; 0 = random init)
 
 
 # ---------------------------------------------------------------------------
@@ -294,7 +295,7 @@ class OneDimensionalManifoldGenerator:
         batch_size = len(batch_indices)
 
         # --- Lazy-load the network and get layer names ---
-        meta = load_network_metadata(cfg.network_type)
+        meta = load_network_metadata(cfg.network_type, epoch=cfg.epoch)
         layer_names = meta.layer_names   # e.g. ['conv1', 'relu1', ...]
 
         extractor = ConvNetExtractor(
@@ -303,6 +304,7 @@ class OneDimensionalManifoldGenerator:
             device=cfg.device,
             n_features=cfg.n_features,
             feature_seed=cfg.feature_seed,
+            epoch=cfg.epoch,
         )
 
         # Allocate result buffers (filled incrementally)
@@ -534,13 +536,14 @@ class RandomManifoldGenerator:
             (batch_number - 1) * batch_size : batch_number * batch_size
         ]
 
-        meta = load_network_metadata(cfg.network_type)
+        meta = load_network_metadata(cfg.network_type, epoch=cfg.epoch)
         extractor = ConvNetExtractor(
             cfg.network_type,
             layer_names=meta.layer_names,
             device=cfg.device,
             n_features=cfg.n_features,
             feature_seed=cfg.feature_seed,
+            epoch=cfg.epoch,
         )
 
         # Each (run_id) gets a unique RNG seed so transforms are independent

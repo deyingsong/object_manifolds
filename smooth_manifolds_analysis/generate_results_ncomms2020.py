@@ -376,7 +376,7 @@ def run_1d_standard_capacity(
             n_batches=n_batches,
             output_dir=output_dir,
             device=device,
-            epoch=epoch if epoch is not None else 0,
+            epoch=epoch,
         )
         generator = OneDimensionalManifoldGenerator(gen_cfg, imagenet_state)
         total_runs = generator.N_DIRECTIONS * n_batches

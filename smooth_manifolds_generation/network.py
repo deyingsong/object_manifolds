@@ -175,6 +175,7 @@ class ConvNetExtractor:
         device: str = "cpu",
         n_features: int = 4096,
         feature_seed: int = 1,
+        epoch: Optional[int] = None,
     ) -> None:
         """
         Parameters
@@ -187,16 +188,19 @@ class ConvNetExtractor:
             Maximum features per layer (``N_HMAX_FEATURES`` in MATLAB).
         feature_seed : int
             RNG seed for reproducible random feature sub-selection.
+        epoch : int, optional
+            Training epoch checkpoint to load (None = fully trained, 0 = random init).
         """
         self.network_type = NetworkType(network_type)
         self.device = device
         self.n_features = n_features
         self.feature_seed = feature_seed
+        self.epoch = epoch
         self._model = None
         self._hooks: Dict[str, np.ndarray] = {}
         self._handles: list = []
         self._layer_names: List[str] = layer_names or []
-        self._metadata = load_network_metadata(network_type)
+        self._metadata = load_network_metadata(network_type, epoch=epoch)
         self._feat_idx: Dict[str, Optional[np.ndarray]] = {}  # feature sub-selection
 
     # ------------------------------------------------------------------
@@ -219,15 +223,19 @@ class ConvNetExtractor:
             raise ValueError(f"Unsupported network type: {nt}")
         fn_name, weights_attr = weights_map[nt]
         fn = getattr(models, fn_name)
-        # Use new weights API (torchvision ≥ 0.13); fall back for older versions
-        try:
-            weights_cls = getattr(models, weights_attr.split(".")[0])
-            weights = getattr(weights_cls, weights_attr.split(".")[1])
-            model = fn(weights=weights)
-        except AttributeError:
-            import warnings
-            warnings.warn(f"Falling back to pretrained=True for {fn_name}.")
-            model = fn(pretrained=True)  # noqa: deprecated
+        if self.epoch == 0:
+            # Untrained (randomly initialised) network — no pretrained weights
+            model = fn(weights=None)
+        else:
+            # Use new weights API (torchvision ≥ 0.13); fall back for older versions
+            try:
+                weights_cls = getattr(models, weights_attr.split(".")[0])
+                weights = getattr(weights_cls, weights_attr.split(".")[1])
+                model = fn(weights=weights)
+            except AttributeError:
+                import warnings
+                warnings.warn(f"Falling back to pretrained=True for {fn_name}.")
+                model = fn(pretrained=True)  # noqa: deprecated
 
         model.eval().to(self.device)
         self._model = model
