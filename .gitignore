@@ -3,3 +3,4 @@ dnn-object-manifolds-master/
 __pycache__/
 alexnet/
 imagenet_all_thumbnails_64px.mat
+results/resnet50/
