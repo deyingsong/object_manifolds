@@ -1,14 +1,9 @@
 # Separability and Geometry of Object Manifolds in Deep Neural Networks
 
-[![bioRxiv shield](https://img.shields.io/badge/bioRxiv-644658-red.svg?style=flat)](https://www.biorxiv.org/content/10.1101/644658v3)
-[![bioRxiv shield](https://img.shields.io/badge/bioRxiv-Supplementary-green.svg?style=flat)](https://www.biorxiv.org/content/biorxiv/early/2020/02/17/644658/DC1/embed/media-1.pdf?download=true)
-[![DOI](https://img.shields.io/badge/DOI-10.1038/s41467--020--14578--5-blue.svg?style=flat)](https://doi.org/10.1038/s41467-020-14578-5)
-
-> Python translation of the original MATLAB repository by Cohen, Chung, Lee & Sompolinsky (2020).
+Python version of the original [MATLAB](https://github.com/sompolinsky-lab/dnn-object-manifolds) repository by Cohen, Chung, Lee & Sompolinsky (2020).
 
 ## Contents
 
-- [Abstract](#abstract)
 - [Overview](#overview)
 - [Package Structure](#package-structure)
 - [System Requirements](#system-requirements)
@@ -18,9 +13,6 @@
 - [Citation](#citation)
 - [License](./dnn-object-manifolds-master/LICENSE)
 
-## Abstract
-
-Stimuli are represented in the brain by the collective population responses of sensory neurons, and an object presented under varying conditions gives rise to a collection of neural population responses called an *object manifold*. Changes in the object representation along a hierarchical sensory system are associated with changes in the geometry of those manifolds, and [recent theoretical progress connects this geometry with *classification capacity*](https://journals.aps.org/prx/abstract/10.1103/PhysRevX.8.031003), a quantitative measure of the ability to support object classification. Deep neural networks trained on object classification tasks are a natural testbed for the applicability of this relation. We show how classification capacity improves along the hierarchies of deep neural networks with different architectures. We demonstrate that changes in the geometry of the associated object manifolds underlie this improved capacity, and shed light on the functional roles different levels in the hierarchy play to achieve it, through orchestrated reduction of manifolds' radius, dimensionality and inter-manifold correlations.
 
 ## Overview
 
@@ -29,9 +21,7 @@ This repository provides a **Python implementation** of the algorithms described
 - direct estimation of classification capacity;
 - numerical estimation of object manifold geometry (radius, dimension, and inter-manifold correlations) and the classification capacity predicted by the mean-field theory (MFT) analysis used in our work.
 
-Furthermore, we provide the code used to generate smooth manifolds described in the paper, as well as the code used in the analysis of both point-cloud and smooth manifolds.
-
-The package is a full object-oriented Python rewrite of the original MATLAB codebase, retaining the same five-folder structure. The QP and least-squares solvers use IBM ILOG CPLEX via its Python API, exactly mirroring the original `cplexqp` / `cplexlsqlin` calls. MatConvNet is replaced by PyTorch (`torchvision`).
+The package is a full object-oriented Python rewrite of the original MATLAB codebase. The QP and least-squares solvers use IBM ILOG CPLEX via its Python API, exactly mirroring the original `cplexqp` / `cplexlsqlin` calls. MatConvNet is replaced by PyTorch (`torchvision`).
 
 ## Package Structure
 
@@ -67,7 +57,6 @@ object_manifolds/
     └── low_rank_analysis.py        #   CovarianceLowRankAnalysis
 ```
 
-The original MATLAB source is preserved under `dnn-object-manifolds-master/` for reference.
 
 ## System Requirements
 
@@ -75,7 +64,6 @@ The original MATLAB source is preserved under `dnn-object-manifolds-master/` for
 - **NumPy**, **SciPy**, **PyTorch**, **torchvision**
 - **IBM CPLEX** Studio 22.1.1 or later — Python bindings (see [Install CPLEX](#install-cplex))
 - Any OS supported by Python and CPLEX (tested on macOS)
-- No special hardware required; a GPU will accelerate the PyTorch feature-extraction step
 
 > **Python version note:** IBM CPLEX Studio 2211 ships Python bindings for versions 3.8, 3.9, and 3.10 only. Create a Python 3.10 virtual environment to use the CPLEX solvers. On Python 3.12+ the `library/cplex_interface.py` module loads cleanly but raises an `ImportError` with setup instructions when a solver function is first called.
 
@@ -84,7 +72,7 @@ The original MATLAB source is preserved under `dnn-object-manifolds-master/` for
 ### 1. Clone the repository
 
 ```bash
-git clone <repo-url>
+git clone https://github.com/deyingsong/object_manifolds.git
 cd object_manifolds
 ```
 
@@ -107,7 +95,6 @@ pip install /Applications/CPLEX_Studio2211/cplex/python/3.10/x86-64_osx
 ```
 
 Adjust the path to match your OS and installation directory (`x86-64_linux` on Linux).
-Typical installation time: 10–15 minutes.
 
 ### 4. Download the ImageNet thumbnails
 
@@ -115,15 +102,13 @@ Download `imagenet_all_thumbnails_64px.mat`
 [from figshare](https://doi.org/10.6084/m9.figshare.11494314) and save it at
 `smooth_manifolds_generation/imagenet_all_thumbnails_64px.mat`.
 
-Typical total installation time: 20 minutes.
-
 ## Demo
 
 All demos below assume the working directory is the `object_manifolds/` package root and the Python 3.10 virtual environment is active.
 
 ### Smooth 1-d manifolds
 
-**Generate manifolds** (7 affine transformations, ~40 min):
+**Generate manifolds**:
 
 ```python
 from smooth_manifolds_generation.imagenet import init_imagenet
@@ -140,7 +125,6 @@ config = GenerationConfig(
 )
 generator = OneDimensionalManifoldGenerator(config)
 
-# Distributed generation (mirrors the MATLAB loop over id=1:28)
 for batch_id in range(1, 29):
     generator.generate(batch_id=batch_id)
 
@@ -148,7 +132,7 @@ for batch_id in range(1, 29):
 tuning_function = generator.collect(batch_ids=range(1, 29))
 ```
 
-**Direct estimation of classification capacity** (~25 min):
+**Direct estimation of classification capacity**:
 
 ```python
 from smooth_manifolds_analysis.capacity_analysis import (
@@ -161,7 +145,7 @@ results = analysis.run(tuning_function, layer_number=20)  # 20 = feature layer f
 print(results)   # LayerCapacityResults with capacity_alpha_c per layer
 ```
 
-**MFT geometry estimation** (~120 min):
+**MFT geometry estimation**:
 
 ```python
 from smooth_manifolds_analysis.low_rank_analysis import (
@@ -176,7 +160,7 @@ results = analysis.run(tuning_function, layer_number=20)
 
 ### Smooth 2-d manifolds
 
-**Generate manifolds** (2 affine transformations, ~100 min):
+**Generate manifolds** (2 affine transformations):
 
 ```python
 from smooth_manifolds_generation.generation import RandomManifoldGenerator, GenerationConfig
@@ -197,7 +181,7 @@ for batch_id in range(1, config.n_batches * 2 + 1):
 tuning_function = generator.collect(batch_ids=range(1, config.n_batches * 2 + 1))
 ```
 
-**Direct capacity estimation** (~15 min):
+**Direct capacity estimation**:
 
 ```python
 from smooth_manifolds_analysis.capacity_analysis import (
@@ -208,7 +192,7 @@ cfg = CapacityAnalysisConfig(n_objects=64, range_factor=0.5, n_samples=201, n_tr
 results = RandomChangeCapacityAnalysis(cfg).run(tuning_function, layer_number=20)
 ```
 
-**MFT geometry estimation** (~120 min):
+**MFT geometry estimation**=:
 
 ```python
 cfg = LowRankAnalysisConfig(n_objects=64, range_factor=0.5, n_samples=201, max_k=5, n_transform_dims=2)
