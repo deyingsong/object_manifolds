@@ -1,15 +1,6 @@
 """
 ImageNet dataset utilities loaded from the pre-built thumbnail archive.
 
-Mirrors the MATLAB functions in ``smooth_manifolds_generation/``:
-
-  init_imagenet.m                  → ``init_imagenet()``
-  read_imagenet_training_size.m    → ``read_imagenet_training_size()``
-  read_imagenet_labels.m           → ``read_imagenet_labels()``
-  read_imagenet_thumbnails.m       → ``read_imagenet_thumbnails(image_id)``
-  choose_imagenet_template_images.m→ ``choose_imagenet_template_images()``
-  sample_indices_one_per_category.m→ ``sample_indices_one_per_category()``
-
 The thumbnail archive ``imagenet_all_thumbnails_<N>px.mat`` is a MATLAB v7.3
 (HDF5) file with two datasets:
 
@@ -41,14 +32,12 @@ import numpy as np
 
 
 # ---------------------------------------------------------------------------
-# Global state (mirrors MATLAB globals in init_imagenet.m)
+# Global state 
 # ---------------------------------------------------------------------------
 
 @dataclass
 class ImageNetState:
     """
-    Replaces MATLAB global variables set by ``init_imagenet.m``.
-
     Attributes
     ----------
     image_size : int
@@ -88,7 +77,7 @@ _LABELS: Optional[List[str]] = None        # list of synset strings, cached
 
 
 # ---------------------------------------------------------------------------
-# Initialisation  (init_imagenet.m)
+# Initialisation  
 # ---------------------------------------------------------------------------
 
 def init_imagenet(
@@ -97,9 +86,6 @@ def init_imagenet(
 ) -> ImageNetState:
     """
     Initialise the ImageNet state from the thumbnail archive.
-
-    Corresponds to ``init_imagenet.m``.  Call once before any other function
-    in this module.
 
     Parameters
     ----------
@@ -212,14 +198,12 @@ def _load_archive() -> None:
 
 
 # ---------------------------------------------------------------------------
-# Public API mirroring the MATLAB functions
+# Public API 
 # ---------------------------------------------------------------------------
 
 def read_imagenet_training_size() -> int:
     """
     Return the number of images in the thumbnail archive.
-
-    Corresponds to ``read_imagenet_training_size.m``.
     """
     _load_archive()
     return int(_THUMBNAILS.shape[0])
@@ -229,8 +213,6 @@ def read_imagenet_labels() -> List[str]:
     """
     Return the list of synset-ID labels, one per training image (1-based
     index maps to ``labels[index - 1]``).
-
-    Corresponds to ``read_imagenet_labels.m``.
     """
     _load_archive()
     return _LABELS
@@ -239,8 +221,6 @@ def read_imagenet_labels() -> List[str]:
 def read_imagenet_thumbnails(image_id: int) -> np.ndarray:
     """
     Return the thumbnail for a single image.
-
-    Corresponds to ``read_imagenet_thumbnails.m``.
 
     Parameters
     ----------
@@ -262,8 +242,7 @@ def read_imagenet_thumbnails(image_id: int) -> np.ndarray:
 
 
 # ---------------------------------------------------------------------------
-# Image selection  (choose_imagenet_template_images.m,
-#                   sample_indices_one_per_category.m)
+# Image selection  
 # ---------------------------------------------------------------------------
 
 def sample_indices_one_per_category(
@@ -274,8 +253,6 @@ def sample_indices_one_per_category(
 ) -> np.ndarray:
     """
     Sample ``n_objects`` image indices, at most one per synset category.
-
-    Corresponds to ``sample_indices_one_per_category.m``.
 
     Parameters
     ----------
@@ -345,17 +322,6 @@ def choose_imagenet_template_images(
 ) -> np.ndarray:
     """
     Select a reproducible, non-overlapping set of template images.
-
-    Corresponds to ``choose_imagenet_template_images.m``.
-
-    Uses ``sample_indices_one_per_category`` with a fixed seed strategy that
-    mirrors the MATLAB implementation:
-
-    * ``n_objects == 128`` → ``base_seed = 1, random_seed = 1``
-    * ``n_objects == 32/16`` → ``base_seed = 0, random_seed = 4``
-    * other → ``base_seed = 0, random_seed = 0``
-
-    Passing an explicit ``random_seed`` overrides the defaults.
 
     Parameters
     ----------

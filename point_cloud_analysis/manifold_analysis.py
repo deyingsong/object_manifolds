@@ -5,8 +5,6 @@ Takes into account correlations between manifold centers via a factor-analysis
 decomposition.
 
 Primary entry point: :class:`ManifoldStableAnalysisCorr`
-
-Corresponds to ``manifold_stable_analysis_corr.m`` (SueYeon Chung, 2018).
 """
 
 from __future__ import annotations
@@ -333,8 +331,7 @@ class ManifoldStableAnalysisCorr:
         """
         Find v* = argmin ||v-t||^2  s.t.  sD1' v >= -kappa.
 
-        Solved via IBM ILOG CPLEX (cplexlsqlin), mirroring the commented
-        cplexqp branch in minimize_vt_sq() of manifold_stable_analysis_corr.m.
+        Solved via IBM ILOG CPLEX (cplexlsqlin)
 
         Formulation::
 

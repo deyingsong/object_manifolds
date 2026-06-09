@@ -57,8 +57,6 @@ class ManifoldGeometry:
 class ManifoldPropertiesIterative:
     """
     Compute manifold geometry via an iterative mean-field method.
-
-    Corresponds to ``calc_manifold_properties.m``.
     """
 
     def __init__(self, n_random_projections: int = 1000, kappa: float = 0.0) -> None:
@@ -142,8 +140,6 @@ class ManifoldPropertiesIterative:
 class ManifoldPropertiesLS:
     """
     Compute manifold geometry via least-squares (no center-axis correlations).
-
-    Corresponds to ``calc_manifold_properties2.m``.
     """
 
     def __init__(self, n_random_projections: int = 1000, kappa: float = 0.0) -> None:
@@ -233,8 +229,6 @@ class ManifoldPropertiesLS:
 class ManifoldPropertiesLSCorr:
     """
     Compute manifold geometry via least-squares including center-axis correlations.
-
-    Corresponds to ``calc_manifold_properties3.m``.
     """
 
     def __init__(self, n_random_projections: int = 1000, kappa: float = 0.0) -> None:

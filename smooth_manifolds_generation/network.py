@@ -1,8 +1,6 @@
 """
 Neural network initialisation and metadata.
 
-Replaces the MATLAB MatConvNet utilities with PyTorch equivalents.
-
 Classes
 -------
 NetworkType
@@ -36,8 +34,6 @@ class NetworkType(enum.IntEnum):
 class NetworkMetadata:
     """
     Metadata describing which layers to extract features from.
-
-    Corresponds to the output of ``load_network_metadata.m``.
     """
 
     network_name: str
@@ -149,10 +145,6 @@ def load_network_metadata(
 class ConvNetExtractor:
     """
     Extract intermediate feature representations from a PyTorch model.
-
-    Corresponds to the forward-pass logic inside
-    ``generate_convnet_one_dimensional_change.m`` and
-    ``generate_convnet_random_change.m``.
 
     Images are expected as ``(B, H, W, 3)`` float32 in the [0, 255] range
     (i.e. the raw warped output of ``_calc_imagenet_warp``).  They are

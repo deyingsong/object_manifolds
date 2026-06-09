@@ -1,10 +1,6 @@
 """
 High-level capacity analysis for DNN manifolds.
 
-Corresponds to:
-  check_convnet_capacity_one_dimensional_change2.m
-  check_convnet_capacity_random_change2.m
-
 Typical usage
 -------------
     from smooth_manifolds_analysis.capacity_analysis import (
@@ -53,8 +49,6 @@ DIRECTION_NAMES = [
 class CapacityAnalysisConfig:
     """
     All parameters for capacity analysis in a single config object.
-
-    Mirrors the arguments of ``check_convnet_capacity_one_dimensional_change2.m``.
 
     Parameters
     ----------
@@ -156,8 +150,6 @@ class OneDimensionalCapacityAnalysis:
     """
     Estimate classification capacity across transformation directions for
     a single network layer using pre-generated 1-D manifold data.
-
-    Corresponds to ``check_convnet_capacity_one_dimensional_change2.m``.
 
     Parameters
     ----------
@@ -320,9 +312,6 @@ class OneDimensionalCapacityAnalysis:
             )
 
         if layer_number is not None:
-            # Map MATLAB 1-based index (pixel=1, convnet layers 2..N_LAYERS+1)
-            # to the available list.
-            # If layer_number > len(available), clamp to last layer.
             meta_names = self.metadata.layer_names     # ordered convnet layers
             # Try to find by position in metadata first
             conv_idx = layer_number - 2  # skip pixel layer (MATLAB layer 1)
@@ -351,8 +340,6 @@ class OneDimensionalCapacityAnalysis:
 class RandomChangeCapacityAnalysis:
     """
     Estimate classification capacity for random-transform manifolds.
-
-    Corresponds to ``check_convnet_capacity_random_change2.m``.
 
     Parameters
     ----------

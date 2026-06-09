@@ -27,8 +27,6 @@ class TuningFunctionPreprocessor:
     """
     Apply one of 8 global preprocessing schemes to a tuning-function array.
 
-    Corresponds to ``calc_randomization_single_neurons.m``.
-
     Mode 0 – identity (no preprocessing)
     Mode 1 – per-neuron z-score (mean-zero, unit variance across all conditions)
     Mode 2 – whitening (full covariance whitening)
@@ -69,7 +67,6 @@ class TuningFunctionPreprocessor:
             flat = tf.reshape(n_neurons, N_total)
             mean_ = np.nanmean(flat, axis=1, keepdims=True)
             flat_c = flat - mean_
-            # ddof=1 matches MATLAB nanstd; result: nanmean(normed^2) == (N-1)/N
             std_ = np.nanstd(flat_c, ddof=1, axis=1, keepdims=True)
             std_[std_ == 0] = 1.0
             flat_normed = flat_c / std_
@@ -162,9 +159,6 @@ class LowDimensionalManifold:
 
     Optionally preserves common center correlations by using a pre-computed
     Stiefel basis.
-
-    Corresponds to ``calc_low_dimension_manifold.m`` and
-    ``calc_low_dimension_manifolds_preserving_correlations.m``.
     """
 
     def __init__(

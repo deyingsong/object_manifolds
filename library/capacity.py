@@ -5,12 +5,9 @@ Two approaches are provided:
 
 1. **Direct (empirical)**  –  binary search for the minimum number of neurons N*
    such that > 50% of random binary dichotomies are linearly separable.
-   Corresponds to ``check_binary_dichotomies_capacity2.m`` and
-   ``check_binary_dichotomies_sampled_features2.m``.
 
 2. **Theoretical (MFT)**  –  use manifold geometry estimates to predict capacity
    via the mean-field theory formula.
-   Corresponds to ``check_hierarchial_capacity.m`` and ``check_samples_capacity.m``.
 
 Classes
 -------
@@ -54,8 +51,6 @@ class BinaryDichotomiesCapacity:
 
     Algorithm: first scan in ``jumps`` to find an upper bound, then binary
     search to precision ``precision``.
-
-    Corresponds to ``check_binary_dichotomies_capacity2.m``.
     """
 
     def __init__(
@@ -200,8 +195,6 @@ class BinaryDichotomiesCapacity:
 class _DichotomiesSampler:
     """
     Internal helper: evaluate separability for a given N.
-
-    Corresponds to ``check_binary_dichotomies_sampled_features2.m``.
     """
 
     def __init__(
@@ -292,8 +285,6 @@ class HierarchicalCapacity:
 
     For each manifold, compute its geometry (R_M, D_M, kappa_M) and combine
     via the mean-field theory capacity formula.
-
-    Corresponds to ``check_hierarchial_capacity.m``.
     """
 
     def __init__(

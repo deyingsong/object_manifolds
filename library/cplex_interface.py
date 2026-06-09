@@ -1,24 +1,18 @@
 """
-IBM ILOG CPLEX Python wrappers matching the MATLAB cplexqp / cplexlsqlin API.
+IBM ILOG CPLEX Python wrappers 
 
 Functions
 ---------
 cplexoptimset(**kwargs) -> CplexOptions
-    Create an options struct (dataclass) mirroring MATLAB cplexoptimset().
+    Create an options struct (dataclass).
 cplexqp(H, f, Aineq, bineq, Aeq, beq, lb, ub, x0, options) -> (x, fval, exitflag, output)
-    Solve a convex (or first-order) QP, matching MATLAB cplexqp().
+    Solve a convex (or first-order) QP.
 cplexlsqlin(C, d, Aineq, bineq, Aeq, beq, lb, ub, options) -> (x, resnorm, residual, exitflag, output, lambda_struct)
-    Solve a constrained least-squares problem, matching MATLAB cplexlsqlin().
+    Solve a constrained least-squares problem.
 
 Requirements
 ------------
 IBM CPLEX Studio >= 22.1.1, Python binding for the matching Python version.
-Install via:
-    cd /Applications/CPLEX_Studio2211/cplex/python/3.10/x86-64_osx
-    pip install .
-
-CPLEX only ships Python 3.8 / 3.9 / 3.10 binaries.  If you are running
-Python 3.12+ you must use a Python 3.10 virtual environment.
 """
 
 from __future__ import annotations
@@ -49,8 +43,6 @@ try:
     import cplex as _cplex_module
     _cplex = _cplex_module
 except (ImportError, Exception):
-    # CPLEX raises a plain Exception (not ImportError) when the Python
-    # version is incompatible (e.g. Python 3.12 vs CPLEX 3.10 binding).
     _cplex = None
 
 # ---------------------------------------------------------------------------
@@ -61,8 +53,6 @@ except (ImportError, Exception):
 class CplexOptions:
     """
     Options for CPLEX QP / LS solvers.
-
-    Mirrors the MATLAB struct returned by cplexoptimset().
 
     Attributes
     ----------
@@ -97,21 +87,12 @@ class CplexOptions:
 def cplexoptimset(**kwargs) -> CplexOptions:
     """
     Create a CplexOptions with default values, overriding with kwargs.
-
-    Mirrors MATLAB::
-
-        options = cplexoptimset();
-        options.Display = 'off';
-        options.simplex.tolerances.feasibility = 1e-10;
-
-    The Python mapping is::
-
-        options = cplexoptimset(
-            Display='off',
-            feasibility_tolerance=1e-10,
-            optimality_tolerance=1e-10,
-            threads=1,
-        )
+    options = cplexoptimset(
+        Display='off',
+        feasibility_tolerance=1e-10,
+        optimality_tolerance=1e-10,
+        threads=1,
+    )
     """
     return CplexOptions(**{k: v for k, v in kwargs.items()
                            if k in CplexOptions.__dataclass_fields__})
@@ -239,7 +220,6 @@ def cplexqp(
                 Aeq   x == beq
                 lb <= x <= ub
 
-    Mirrors MATLAB ``cplexqp``.
 
     Parameters
     ----------
@@ -374,7 +354,6 @@ def cplexlsqlin(
         min  0.5 x' (C'C) x  -  (C'd)' x
         s.t. same constraints
 
-    Mirrors MATLAB ``cplexlsqlin``.
 
     Parameters
     ----------
@@ -425,13 +404,7 @@ def cplexlsqlin(
     residual = C @ x - d
     resnorm = float(0.5 * residual @ residual)
 
-    # --- Lagrange multipliers for inequality constraints ---
-    # Rebuild CPLEX problem to retrieve dual values (cplexqp discards the object)
-    # We re-solve cheaply: just rebuild and retrieve duals from the last solve.
-    # Since we already solved above, retrieve duals from that solve.
 
-    # We need to get the dual values from the original solve.
-    # To do this properly, re-use the solve via a small wrapper.
     c = _cplex.Cplex()
     _apply_options(c, options)
 

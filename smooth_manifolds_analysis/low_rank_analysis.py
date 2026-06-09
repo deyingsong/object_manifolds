@@ -1,8 +1,6 @@
 """
 Low-rank correlation and manifold geometry analysis for DNN manifolds.
 
-Corresponds to ``check_convnet_covariance_low_rank_approx_optimal_K.m``.
-
 For each layer and transformation direction:
   1. Compute manifold centers (mean over samples).
   2. Find the optimal low-rank common subspace via Stiefel optimisation.
@@ -53,9 +51,6 @@ from smooth_manifolds_analysis.capacity_analysis import DIRECTION_NAMES
 class LowRankAnalysisConfig:
     """
     All parameters for low-rank covariance analysis in a single config object.
-
-    Mirrors the script arguments of
-    ``check_convnet_covariance_low_rank_approx_optimal_K.m``.
 
     Parameters
     ----------
@@ -174,8 +169,6 @@ class LowRankResults:
 class CovarianceLowRankAnalysis:
     """
     Optimal low-rank decomposition and manifold geometry analysis.
-
-    Corresponds to ``check_convnet_covariance_low_rank_approx_optimal_K.m``.
 
     Parameters
     ----------

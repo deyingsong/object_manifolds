@@ -2,7 +2,6 @@
 Linear separability tests via SVM (max-margin classification).
 
 Uses IBM ILOG CPLEX QP solver (cplexqp) to exactly match the original
-MATLAB implementation in check_linear_seperability_svm_cplexqp.m.
 
 Classes
 -------
@@ -49,8 +48,6 @@ class SVMResult:
 class LinearSeparabilitySVM:
     """
     Test linear separability using the SVM primal or dual QP.
-
-    Corresponds to ``check_linear_seperability_svm_cplexqp.m``.
 
     The primal minimises  0.5 ||w||^2  s.t.  y_i(w'x_i + b) >= 1.
     Uses IBM ILOG CPLEX via the cplexqp Python API.
@@ -123,15 +120,6 @@ class LinearSeparabilitySVM:
     def _solve_primal(self, X: np.ndarray, y: np.ndarray, N: int, M: int) -> SVMResult:
         """
         Primal SVM: min 0.5 x'Hx + f'x  s.t.  Aineq x <= bineq
-
-        Exactly mirrors the MATLAB primal branch in
-        check_linear_seperability_svm_cplexqp.m::
-
-            f = zeros(1, N+1);
-            H = eye(N+1); H(N+1,N+1) = 0;
-            Xy = [X; ones(1, M)] .* repmat(y, [N+1, 1]);
-            Aineq = -Xy';  bineq = -ones(1, M);
-            [w, L, flag, output] = cplexqp(H, f, Aineq, bineq, [], [], [], [], [], options);
         """
         Xb = np.vstack([X, np.ones((1, M))])            # (N+1, M)
         Xy = Xb * y[np.newaxis, :]                       # (N+1, M)
@@ -150,7 +138,6 @@ class LinearSeparabilitySVM:
                 H, f, Aineq, bineq, None, None, None, None, None, options
             )
         except Exception as err:
-            # Mirror MATLAB catch block
             msg = str(err)
             if "1256" in msg or "singular" in msg.lower():
                 print("Warning: Basis singular")
@@ -182,16 +169,6 @@ class LinearSeparabilitySVM:
     def _solve_dual(self, X: np.ndarray, y: np.ndarray, N: int, M: int) -> SVMResult:
         """
         Dual SVM: max sum(a) - 0.5 a' (Xy Xy') a  s.t.  y'a = 0,  a >= 0.
-
-        Exactly mirrors the MATLAB dual branch::
-
-            options.solutiontarget = 2;   % first-order optimal
-            Xy = X .* repmat(y, [N, 1]);
-            H = Xy'*Xy;
-            f = -ones(1, M);
-            lb = zeros(1, M);
-            Aeq = y;  beq = 0;
-            [a, L, flag] = cplexqp(H, f, [], [], Aeq, beq, lb, [], [], options);
         """
         Xy = X * y[np.newaxis, :]                        # (N, M)
         H = Xy.T @ Xy                                    # (M, M)
@@ -209,7 +186,7 @@ class LinearSeparabilitySVM:
         w, L, flag, output = cplexqp(
             H, f, None, None, Aeq, beq, lb, None, None, options
         )
-        L = -L  # MATLAB negates for maximisation
+        L = -L  
 
         if flag == -999:   # 'Unknown status' equivalent
             flag = 0
@@ -238,8 +215,6 @@ class LinearSeparabilitySVM:
 class LinearSeparabilityGeneralizationSVM:
     """
     Test linear separability with a generalisation check on a random subset.
-
-    Corresponds to ``check_linear_seperability_generalization_svm_cplexqp.m``.
     """
 
     def __init__(

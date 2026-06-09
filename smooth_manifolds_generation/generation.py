@@ -1,11 +1,7 @@
 """
 Manifold generation: forward-pass images through a DNN under affine transforms.
 
-Mirrors the MATLAB scripts:
-  generate_convnet_one_dimensional_change.m  → OneDimensionalManifoldGenerator
-  generate_convnet_random_change2.m          → RandomManifoldGenerator
-
-Workflow (matching MATLAB's distributed loop):
+Workflow :
 
     # 1. Init
     state = init_imagenet()
@@ -66,8 +62,6 @@ class GenerationConfig:
 class OneDimensionalManifoldGenerator:
     """
     Generate DNN response manifolds by sweeping one affine-transform parameter.
-
-    Corresponds to ``generate_convnet_one_dimensional_change.m``.
 
     run_id maps to a (direction, batch) pair via MATLAB's ind2sub convention::
 
@@ -357,13 +351,8 @@ class OneDimensionalManifoldGenerator:
         transform: AffineTransform,
     ) -> np.ndarray:
         """
-        Apply a MATLAB-convention affine transform from the large frame image
-        to the smaller output image, using world-coordinate mapping.
-
-        Mirrors ``calc_imagenet_warp.m``::
-
-            input  → (FRAME_SIZE × FRAME_SIZE) world range [-s_in,  s_in]
-            output → (IMAGE_SIZE × IMAGE_SIZE) world range [-s_out, s_out]
+        input  → (FRAME_SIZE × FRAME_SIZE) world range [-s_in,  s_in]
+        output → (IMAGE_SIZE × IMAGE_SIZE) world range [-s_out, s_out]
 
         Parameters
         ----------
@@ -435,13 +424,11 @@ class RandomManifoldGenerator:
     """
     Generate DNN response manifolds with random affine transforms.
 
-    Corresponds to ``generate_convnet_random_change2.m``.
+    run_id mapping:
 
-    run_id mapping (column-major, like MATLAB's ind2sub)::
-
-        n_total   = n_batches × n_transform_dims
-        batch_num = (run_id - 1) % n_batches + 1          # 1..n_batches
-        xform_id  = (run_id - 1) // n_batches + 1         # 1..n_transform_dims
+    n_total   = n_batches × n_transform_dims
+    batch_num = (run_id - 1) % n_batches + 1          # 1..n_batches
+    xform_id  = (run_id - 1) // n_batches + 1         # 1..n_transform_dims
 
     collect() returns:
         {layer_name → (N_TRANSFORM_DIMS, N_OBJECTS, N_SAMPLES, N_FEATURES)}

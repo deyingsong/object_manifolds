@@ -1,7 +1,6 @@
 """
 generate_results_ncomms2020.py
 ==============================
-Python translation of ``generate_results_ncomms2020.m``.
 
 Reproduces all experiments from:
   Chung, Lee & Abbott, "Classification and Geometry of General Perceptual Manifolds",
