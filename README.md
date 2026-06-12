@@ -1,5 +1,7 @@
 # Separability and Geometry of Object Manifolds in Deep Neural Networks
 
+This repository provides a Python toolkit for studying how neural networks organize variations of the same object—such as translated, rotated, or scaled images—into geometric “object manifolds” in their internal feature spaces. It can generate these manifolds from ImageNet images and pretrained vision models or analyze your own neural and DNN activation data, then quantify how easily object classes can be linearly separated and explain that performance through interpretable geometric properties including manifold radius, effective dimension, and correlations. By combining empirical classification-capacity measurements with predictions from mean-field theory, the project helps researchers and practitioners investigate how representation geometry evolves across network layers and how that geometry affects downstream classification.
+
 Python version of the original [MATLAB](https://github.com/sompolinsky-lab/dnn-object-manifolds) repository by Cohen, Chung, Lee & Sompolinsky (2020).
 
 ## Contents
